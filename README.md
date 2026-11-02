@@ -1,78 +1,92 @@
 # RC Lap Timer
 
-Časomíra pro jedno RC auto. ESP32 + laserová závora + webová aplikace v mobilu přes Wi-Fi.
+Lap timer for a single RC car. ESP32 + laser beam gate + web app on a phone over Wi-Fi.
 
-## Součástky
+## Parts
 
-- ESP32 dev board (ESP32-WROOM, „esp32dev“)
-- laserový modul 650 nm (5 V nebo 3,3 V)
-- fotoodpor LDR (např. GL5528)
-- rezistor 10 kΩ
-- černá trubička 2 až 3 cm na LDR (stíní okolní světlo)
+- ESP32 dev board (ESP32-WROOM, "esp32dev")
+- 650 nm laser module (5 V or 3.3 V)
+- LDR photoresistor (e.g. GL5528)
+- 10 kΩ resistor
+- black tube 2–3 cm long over the LDR (shields ambient light)
 
-## Zapojení
+## Wiring
 
 ```
 3V3 ── LDR ──┬── GPIO 32
              └── 10 kΩ ── GND
 
-Laser  VCC → 5V (nebo 3V3), GND → GND
+Laser  VCC → 5V (or 3V3), GND → GND
 ```
 
-Laser může mít i vlastní napájení na druhé straně tratě, pak nevedou dráty přes trať.
-Senzor musí být na ADC1 (GPIO 32 až 39), ADC2 s běžící Wi-Fi nefunguje.
+On the 30-pin DevKit board: **D32** is on the left side, 10th pin from the bottom; **3V3** is the bottom-right pin;
+**VIN** (≈5 V from USB, for the laser) is the bottom-left pin; **GND** is 2nd from the bottom on both sides.
 
-Polarita zapojení je jedno. Kód sleduje odchylku od klidové hodnoty, ne absolutní hranici.
+The laser can also have its own power supply on the other side of the track, so no wires cross the track.
+The sensor must be on ADC1 (GPIO 32–39); ADC2 doesn't work while Wi-Fi is running.
 
-## Nahrání
+Wiring polarity doesn't matter. The code watches the deviation from the idle value, not an absolute threshold.
 
-**PlatformIO**
+## Project layout
+
+```
+platformio.ini     build config, embeds web/ files into the firmware
+src/
+  main.cpp         setup() / loop(), wires the modules together
+  config.h         fixed constants (pin, AP name, defaults)
+  settings.*       user settings in flash (Preferences)
+  sensor.*         LDR sampling task, crossing detection
+  laps.*           lap bookkeeping (thread-safe)
+  wlan.*           Wi-Fi AP + captive portal, optional home Wi-Fi, mDNS
+  web.*            HTTP server, API, WebSocket
+web/
+  index.html       the phone app
+  style.css
+  app.js
+```
+
+The files in `web/` are embedded into the firmware at build time (`board_build.embed_txtfiles`),
+so one `upload` is all you need; there's no separate filesystem image.
+
+## Upload
 
 ```
 pio run -t upload
 pio device monitor
 ```
 
-**Arduino IDE**
+## Usage
 
-1. Board ESP32 Dev Module (balík esp32 od Espressif)
-2. Knihovna *WebSockets* od Markus Sattler (Správce knihoven)
-3. Otevřít `timer.ino`, nahrát
+1. Turn on the laser, aim it into the LDR tube, then power the ESP32 (it calibrates idle at startup).
+2. On the phone, connect to the **RC_Lap_Timer** Wi-Fi. The timer page opens by itself
+   (captive portal). If it doesn't, open `http://192.168.4.1`.
+3. The first pass starts timing, every following pass records a lap.
 
-## Použití
+The **Sensor** section shows the live ADC value (helps with aiming the laser), calibration,
+minimum lap time and sensitivity. Settings are saved to flash.
 
-1. Zapnout laser, namířit do trubičky s LDR, pak zapnout ESP32 (při startu se kalibruje klid).
-2. V telefonu se připojit k Wi-Fi **RC_Lap_Timer**. Stránka timeru se otevře sama
-   (captive portal). Kdyby ne, otevřít `http://192.168.4.1`.
-3. První průjezd startuje, každý další zapíše kolo.
+### Home Wi-Fi (optional)
 
-V záložce **Senzor** je živá hodnota ADC (pomáhá při míření laseru), kalibrace,
-minimální čas kola a citlivost. Nastavení se ukládá do flash.
+In the **Wi-Fi** section you can enter your home network. After a restart the ESP32 also connects
+to it and is reachable at `http://laptimer.local` (or the IP from the serial log). The phone then
+doesn't need to switch Wi-Fi and keeps its internet. The RC_Lap_Timer network always runs. If the
+home network isn't in range within 10 s at startup (e.g. outside at the track), only the own network runs.
 
-### Domácí Wi-Fi (volitelné)
+Note: `.local` addresses work on iPhone and desktop, not on some Androids; use the IP address there.
 
-V záložce **Wi-Fi** jde zadat domácí síť. ESP32 se po restartu připojí i k ní a je
-dostupné na `http://laptimer.local` (nebo IP z výpisu). Telefon pak nemusí přepínat
-Wi-Fi a neztrácí internet. Vlastní síť RC_Lap_Timer běží vždy. Když domácí síť
-není při startu do 10 s v dosahu (třeba venku na trati), běží jen vlastní síť.
+### Instant times
 
-Pozn. `.local` adresy fungují na iPhonu a desktopu, na některých Androidech ne,
-tam použij IP adresu.
-
-### Okamžité časy
-
-Stránka dostává data přes WebSocket (port 81). Nové kolo přijde hned po průjezdu,
-živá data senzoru 5x za sekundu. Při výpadku spojení se stránka sama přepne do
-záložního režimu (HTTP každou sekundu) a WebSocket znovu připojí.
-Stav spojení ukazuje tečka vpravo nahoře.
+The page gets data over WebSocket (port 81). A new lap arrives right after the pass, live sensor
+data 5× per second. If the connection drops, the page switches to fallback mode (HTTP every second)
+and reconnects the WebSocket. The dot in the top right shows the connection state.
 
 ## API
 
-| Metoda | Cesta | Popis |
+| Method | Path | Description |
 |---|---|---|
-| GET | `/api/state` | kompletní stav (kola, nejlepší, nastavení) |
-| POST | `/api/reset` | nový trénink |
-| POST | `/api/calibrate` | kalibrace klidu |
-| POST | `/api/config?minLap=2000&delta=800` | nastavení (ms, ADC) |
-| POST | `/api/wifi?ssid=...&pass=...` | domácí Wi-Fi, prázdné ssid = zapomenout |
-| WS | `ws://<ip>:81/` | zprávy `{"t":"state",...}` a `{"t":"live",...}` |
+| GET | `/api/state` | full state (laps, best, settings) |
+| POST | `/api/reset` | new session |
+| POST | `/api/calibrate` | calibrate idle |
+| POST | `/api/config?minLap=2000&delta=800` | settings (ms, ADC) |
+| POST | `/api/wifi?ssid=...&pass=...` | home Wi-Fi, empty ssid = forget |
+| WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` |

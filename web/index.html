@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#121318">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>RC Lap Timer</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <h1>🏁 RC Lap Timer <span id="conn"><span class="dot" id="dot"></span><span id="ctxt">connecting</span></span></h1>
+
+  <div class="card" id="curCard">
+    <div class="lbl" id="state">Waiting for first pass</div>
+    <div class="big" id="cur">--.---</div>
+  </div>
+
+  <div class="row">
+    <div class="card"><div class="lbl">Last</div><div class="mid" id="last">--</div><div class="lbl" id="lastd">&nbsp;</div></div>
+    <div class="card"><div class="lbl">Best</div><div class="mid best" id="best">--</div><div class="lbl" id="avg">&nbsp;</div></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl" style="margin-bottom:6px">Laps</div>
+    <ol id="laps"></ol>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="r" onclick="act('reset','Delete all laps?')">New session</button>
+    <button id="snd" onclick="toggleSound()">🔇 Sound</button>
+  </div>
+
+  <div class="card"><details><summary>Sensor</summary>
+    <p class="lbl">ADC value <b id="raw">0</b> · idle <b id="base">0</b> · beam <b id="beam">?</b></p>
+    <div class="bar"><i id="mb" style="background:var(--mut)"></i><i id="mr" style="background:var(--ok)"></i></div>
+    <label>Min. lap time (s) <input id="minLap" type="number" step="0.1" min="0.3"></label>
+    <label>Sensitivity, ADC deviation <input id="delta" type="number" step="50" min="50" max="4000"></label>
+    <div class="row"><button onclick="save()">Save</button><button onclick="act('calibrate')">Calibrate idle</button></div>
+    <p class="hint">Calibrate with a clear beam aimed at the sensor. Discarded passes: <b id="ign">0</b>.</p>
+  </details></div>
+
+  <div class="card"><details><summary>Wi-Fi</summary>
+    <p class="hint" id="wstat"></p>
+    <label>Home network <input id="ssid" autocomplete="off"></label>
+    <label>Password <input id="pass" type="password" autocomplete="off"></label>
+    <div class="row"><button onclick="wifi(false)">Save and restart</button><button onclick="wifi(true)">Forget</button></div>
+    <p class="hint">The RC_Lap_Timer network always runs. When a home network is set and in range, the timer is also at http://laptimer.local, so the phone doesn't have to switch Wi-Fi and keeps its internet.</p>
+  </details></div>
+</body>
+</html>
