@@ -10,6 +10,13 @@ Lap timer for an RC car with drivers taking turns. ESP32 + laser beam gate + web
 - 10 kΩ resistor
 - black tube 2–3 cm long over the LDR (shields ambient light)
 
+**LDR vs. phototransistor.** An LDR reacts slowly (GL5528: ~20–30 ms), and a fast car blocks the beam
+for about as long (40 cm car at 50 km/h ≈ 30 ms). The LDR then only partly darkens: fast passes show
+a smaller **pass depth** in the Sensor section and may be missed. If that happens, swap the LDR for a
+phototransistor (e.g. BPW85, L-53P3C, TEPT4400), which reacts in microseconds: collector to 3V3,
+emitter to GPIO 32, 10 kΩ from GPIO 32 to GND, same tube. No code change needed.
+Aim the beam at the height of the car body, not between the wheels.
+
 ## Wiring
 
 ```
@@ -41,6 +48,7 @@ src/
   laps.*           laps, per-driver stats, corrections (no hardware deps, unit-tested)
   drivers.*        driver names in flash, who's driving
   wlan.*           Wi-Fi AP + captive portal, home Wi-Fi in the background, mDNS
+  ota.*            firmware upload over Wi-Fi
   web.*            HTTP server, API, WebSocket
 web/
   index.html       the phone app
@@ -63,6 +71,11 @@ pio device monitor
 
 If the upload hangs at `Connecting...`, hold the **BOOT** button until it starts.
 If it breaks off halfway, lower `upload_speed` in `platformio.ini` to 460800.
+
+**Over Wi-Fi** (after the first USB upload, e.g. with the timer mounted at the track): connect the laptop
+to RC_Lap_Timer and run `pio run -e ota -t upload`. On the home network use
+`pio run -e ota -t upload --upload-port laptimer.local`. The password is `OTA_PASSWORD` in
+`src/config.h` (and `upload_flags` in `platformio.ini`); change both if you like.
 
 ## Develop without the board
 

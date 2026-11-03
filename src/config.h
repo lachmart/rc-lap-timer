@@ -7,6 +7,7 @@ constexpr int      LED_PIN     = 2;               // onboard blue LED, lit while
 constexpr const char* AP_SSID  = "RC_Lap_Timer";
 constexpr const char* AP_PASS  = "";              // empty = open network, otherwise at least 8 characters
 constexpr const char* HOSTNAME = "laptimer";      // http://laptimer.local
+constexpr const char* OTA_PASSWORD = "laptimer";  // Wi-Fi firmware upload, must match upload_flags in platformio.ini
 constexpr int      MAX_LAPS    = 200;             // how many recent laps are kept in memory
 constexpr int      MAX_DRIVERS = 8;
 constexpr int      MAX_NAME    = 32;              // bytes (UTF-8) per driver name, UI allows 16 characters

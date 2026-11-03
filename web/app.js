@@ -16,6 +16,7 @@ let rssi = 0;          // home Wi-Fi signal (dBm), 0 = not connected
 let suggested = 0;     // sensitivity suggested by the sensor
 let brokenSince = 0;   // performance.now() when the beam got broken, 0 = clear
 let openLap = 0;       // lap number whose actions are shown in the list
+let medians = {};      // driver id -> median of their counted laps (3+ laps), for "short?"
 
 // ---------------------------------------------------------------- helpers
 const driverName = id => {
@@ -160,11 +161,21 @@ function joinable(a, b) {
   return x && y && !x[2] && !y[2] && x[1] === y[1] && y[3] === 1;
 }
 
+function computeMedians() {
+  const by = {};
+  for (const l of S.laps) if (!l[2]) (by[l[1]] = by[l[1]] || []).push(l[0]);
+  medians = {};
+  for (const [id, list] of Object.entries(by)) {
+    if (list.length < 3) continue;
+    list.sort((a, b) => a - b);
+    medians[id] = list[Math.floor(list.length / 2)];
+  }
+}
+
 // Much shorter than the driver's typical lap: probably a false trigger split a lap.
 function suspicious(lap) {
-  const mine = S.laps.filter(l => !l[2] && l[1] === lap[1]).map(l => l[0]).sort((a, b) => a - b);
-  if (mine.length < 3) return false;
-  return lap[0] < mine[Math.floor(mine.length / 2)] * 0.6;
+  const m = medians[lap[1]];
+  return m !== undefined && lap[0] < m * 0.6;
 }
 
 function renderLaps() {
@@ -251,6 +262,7 @@ function renderNets(list) {
 function onState(s) {
   const newLap = seen >= 0 && s.count > seen;
   seen = s.count; S = s; cur = s.cur; at = performance.now();
+  computeMedians();
 
   const lastLap = s.laps.length ? s.laps[s.laps.length - 1] : null;
   const last = lastLap && !lastLap[2] ? lastLap[0] : 0;

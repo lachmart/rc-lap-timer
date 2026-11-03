@@ -5,10 +5,10 @@ Hobby project. Communication, code comments, UI and commits in English.
 
 ## Status
 
-- Firmware **compiles cleanly** (platform espressif32 8.0.0 pinned, Arduino core 3.3.12, WebSockets 2.7.3; flash ~88 % of the default 1.3 MB app partition, switch to a bigger partition table if it grows). **Never uploaded to a board yet.**
+- Firmware **compiles cleanly** (platform espressif32 8.0.0 pinned, Arduino core 3.3.12, WebSockets 2.7.3; partition table `min_spiffs.csv` = 1.9 MB app with OTA, flash ~62 %). **Never uploaded to a board yet.**
 - Hardware not yet assembled or tested. `DEF_DELTA` and `DEF_MIN_LAP` are estimates, tuned via the web UI.
 - Lap logic unit-tested on the host (`pio test -e native`). Web UI verified against the mock server only.
-- **Untested on hardware**: switching `WIFI_AP_STA` ↔ `WIFI_AP` while the AP runs (should keep AP clients), mDNS restart after a late STA connect, scan while phones are on the AP, disconnect reason codes (wrong password vs. not found), GPIO 2 LED.
+- **Untested on hardware**: switching `WIFI_AP_STA` ↔ `WIFI_AP` while the AP runs (should keep AP clients), mDNS restart after a late STA connect, scan while phones are on the AP, disconnect reason codes (wrong password vs. not found), GPIO 2 LED, OTA upload, whether the GL5528 LDR is fast enough for fast passes (watch pass depth vs. speed).
 - Development on a Mac, PlatformIO in VS Code (`pio run -t upload`, `pio device monitor`).
 
 ## Structure
@@ -22,11 +22,12 @@ Hobby project. Communication, code comments, UI and commits in English.
   - `laps.*` – session state: lap ring buffer, per-driver stats, undo/restart/delete/join. Behind `portMUX` on ESP32, no lock and no hardware deps on the host (time is passed in), so it's unit-tested. `lapsRevision()` change counter.
   - `drivers.*` – driver list (names in Preferences namespace `drivers`, ids assigned at runtime), selection; main loop only
   - `wlan.*` – AP, STA state machine, captive DNS, mDNS (not named `network.*`: on macOS' case-insensitive FS it would shadow the framework's `Network.h`)
-  - `web.*` – WebServer, WebSocket, JSON building (with escaping), restart scheduling
+  - `ota.*` – ArduinoOTA (port 3232, password `OTA_PASSWORD`, its own mDNS disabled because `wlan` runs mDNS); env `ota` in platformio.ini (`espota`, 192.168.4.1)
+  - `web.*` – WebServer, WebSocket, JSON building (with escaping)
 - `web/` – `index.html`, `style.css`, `app.js` as normal files. Embedded into the firmware by `board_build.embed_txtfiles`, accessed in `web.cpp` via `asm("_binary_web_<name>_start")` symbols and served at `/`, `/style.css`, `/app.js`. No LittleFS / uploadfs needed.
 - `test/test_laps/`, `test/test_beam/` – Unity tests, env `native` builds only `laps.cpp` and `beam.cpp` (`build_src_filter`). Run `pio test -e native` (plain `pio test` runs nothing, `esp32dev` has `test_ignore = *`).
 - `tools/mock_server.py` – stdlib-only Python fake of the firmware (HTTP 8080 + WS 81, simulated car with false triggers, `--manual`, `POST /mock/cross`, `POST /mock/block?on=1|0`, fake Wi-Fi networks; password `wrong` fails). **Mirrors laps/drivers logic: keep it in sync when behaviour changes.**
-- `platformio.ini` – `default_envs = esp32dev`; envs `esp32dev` and `native`
+- `platformio.ini` – `default_envs = esp32dev`; envs `esp32dev`, `ota` (extends esp32dev, Wi-Fi upload) and `native`
 - `README.md` – wiring, uploading, usage, API
 - Arduino IDE is not supported (PlatformIO only).
 
@@ -60,6 +61,7 @@ Hobby project. Communication, code comments, UI and commits in English.
 - **One car, drivers take turns**: a driver is selected in the UI, laps are attributed to them, leaderboard per session. No persistent session history / CSV export (explicitly not wanted).
 - For multiple cars at once (not planned): separate lanes each with its own gate, or gates at different heights; with car modifications IR LEDs + NE555 at different frequencies and TSOP receivers. RFID (UHF as used at marathons) is expensive and doesn't like carbon/metal.
 - **Doppler**: acoustic (engine sound) rejected as a timer due to accuracy (~±10–30 ms, throttle changes the frequency). Microwave radar (HB100 10.5 GHz, ~19.5 Hz per km/h) is a possible future extension as a **speed meter** on the straight, not as a timer. Martin is checking whether he has the module.
+- **Sensor**: LDR GL5528 for now. It is slow (20–30 ms), comparable to how long a fast car blocks the beam; if pass depth drops at speed, switch to a phototransistor (BPW85 / L-53P3C / TEPT4400) in the same divider, no code change. Sampling is 1 kHz (1 ms resolution), fine for a phototransistor too.
 - **Bluetooth** deliberately not used. Staying with Wi-Fi for iPhone compatibility without installing an app.
 - Martin wants the phone to **stay on home Wi-Fi while racing**, hence the background STA reconnect. At a track without home Wi-Fi, a phone hotspot can be the "home network".
 
