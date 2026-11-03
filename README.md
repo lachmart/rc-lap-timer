@@ -161,8 +161,11 @@ training, the laps stay. Undo, join and delete also work in a race; the standing
 
 **Heats (one car, drivers in turn):** with one car and a laps race, the Race tab shows the drivers in turn; tap
 to leave one out or change the order. Each driver drives the laps on their own: after a driver's last lap
-the timer hands the car to the next one by itself (no tap needed), whose time starts at the car's next
-crossing, so there is one untimed lap to hand over the transmitter. Fastest total time wins.
+the timer hands the car to the next one by itself, who then gets ready: until someone taps **Start <name>**,
+or for the time chosen under **Between drivers** (10/30/60 s, **Start <name> now** cuts it short). Then the
+driver's name, 3, 2, 1, go; their time starts at the car's first crossing after "go", crossings in between
+don't count. Fastest total time wins. The voice says one message per crossing (lap time, final lap and who
+gets ready, a finished heat with total and position); undo says "Last pass removed".
 During heats the race card shows the driver on the track with the running lap and heat total to the
 millisecond, last/best lap, the split against the fastest heat so far after the same number of laps, how
 many laps are left, and who is next; on the final lap the next driver is told to get ready (also by voice).
@@ -251,7 +254,8 @@ and reconnects the WebSocket. The dot in the top right shows the connection stat
 | POST | `/api/car/rename?slot=1&name=Buggy` | name a transponder car |
 | POST | `/api/car/remove?slot=1` | forget a transponder car |
 | POST | `/api/mode?multi=1` | several cars with transponders (1) or one beam-only car (0) |
-| POST | `/api/race/start?laps=10&minutes=0[&order=2,3,1]` | new session + countdown; laps or minutes; `order` = heats (one car, laps race): driver ids in turn |
+| POST | `/api/race/start?laps=10&minutes=0[&order=2,3,1&prep=30]` | new session + countdown; laps or minutes; `order` = heats (one car, laps race): driver ids in turn; `prep` = seconds between drivers, 0 = start button |
+| POST | `/api/race/next` | heats: start the next driver's countdown now (400 if no one is waiting) |
 | POST | `/api/race/stop` | back to training, laps stay |
 | POST | `/api/usb?zround=1` | USB port: ZRound decoder (1) or debug log (0) |
 | POST | `/api/calibrate` | calibrate idle |

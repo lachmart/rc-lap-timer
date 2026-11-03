@@ -36,7 +36,7 @@ void test_state() {
   StateInput in = {};
   in.nowUs = NOW;
   in.multi = true;
-  in.race = { RaceState::Running, 120000000000LL, 10, 0, {}, 0, 0 };
+  in.race = { RaceState::Running, 120000000000LL, 10, 0, {}, 0, 0, HeatState::Running, 0, 0, 0, 4000 };
   in.setLaps = 12;
   in.setMin = 0;
   in.unidentified = 4;
@@ -59,7 +59,7 @@ void test_state() {
 
   TEST_ASSERT_EQUAL_STRING(
     "{\"t\":\"state\",\"now\":123456789,\"multi\":true,"
-    "\"race\":{\"state\":\"running\",\"go\":120000000,\"laps\":10,\"minutes\":0,\"order\":[],\"heat\":0,\"setLaps\":12,\"setMin\":0},"
+    "\"race\":{\"state\":\"running\",\"go\":120000000,\"laps\":10,\"minutes\":0,\"order\":[],\"heat\":0,\"heatState\":\"running\",\"heatGo\":0,\"prep\":0,\"setLaps\":12,\"setMin\":0},"
     "\"count\":4,\"best\":8000,\"ignored\":0,\"unident\":4,\"minLap\":2500,\"delta\":800,"
     "\"zround\":{\"on\":false,\"connected\":true,\"racing\":false},"
     "\"ssid\":\"Ho\\\"me\\u0001\",\"staIp\":\"192.168.1.5\",\"sta\":\"connected\",\"staErr\":\"\",\"hasPass\":true,"
@@ -76,7 +76,7 @@ void test_state_empty() {
   lapsSnapshot(snap, NOW);
   JsonCar cars[] = { { 0, 0, "" } };
   StateInput in = {};
-  in.race = { RaceState::Off, 0, 0, 0, {}, 0, 0 };
+  in.race = { RaceState::Off, 0, 0, 0, {}, 0, 0, HeatState::Running, 0, 0, 0, 4000 };
   in.ssid = in.staIp = in.sta = in.staErr = "";
   in.cars = cars;
   in.nCars = 1;
@@ -91,14 +91,14 @@ void test_state_heats() {
   lapsSnapshot(snap, NOW);
   JsonCar cars[] = { { 0, 0, "" } };
   StateInput in = {};
-  in.race = { RaceState::Running, 5000000, 10, 0, { 3, 1, 2 }, 3, 1 };
+  in.race = { RaceState::Running, 5000000, 10, 0, { 3, 1, 2 }, 3, 1, HeatState::Waiting, 0, 0, 0, 4000 };
   in.ssid = in.staIp = in.sta = in.staErr = "";
   in.cars = cars;
   in.nCars = 1;
   in.laps = &snap;
   webjsonState(out, in);
   TEST_ASSERT_NOT_NULL(strstr(out.c_str(),
-    "\"race\":{\"state\":\"running\",\"go\":5000,\"laps\":10,\"minutes\":0,\"order\":[3,1,2],\"heat\":1,"));
+    "\"race\":{\"state\":\"running\",\"go\":5000,\"laps\":10,\"minutes\":0,\"order\":[3,1,2],\"heat\":1,\"heatState\":\"waiting\",\"heatGo\":0,\"prep\":0,"));
 }
 
 void test_live() {

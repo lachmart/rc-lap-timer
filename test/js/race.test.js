@@ -228,3 +228,19 @@ test('heats: during the countdown the first driver is up next', () => {
   assert.equal(s.next, 1);
   assert.deepEqual(s.after, [2, 3]);
 });
+
+test('heats: between drivers the next one waits for a start, or counts down', () => {
+  const laps = heat(1, 11000, 9000, 9000, 9000);
+  const st = heats({ laps, heat: 1 });
+  st.race.heatState = 'waiting';
+  let s = standings(st, 50000);
+  assert.equal(s.heatState, 'waiting');
+  assert.equal(s.current.driver, 2);
+  assert.equal(s.current.started, false);              // the car still runs, but not for driver 2 yet
+  st.race.heatState = 'countdown';
+  st.race.heatGo = 60000;
+  s = standings(st, 57500);
+  assert.equal(s.heatCountdownMs, 2500);
+  st.race.heatState = 'running';
+  assert.equal(standings(st, 61000).current.started, true);
+});

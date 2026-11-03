@@ -81,7 +81,9 @@ class Timer:
         self.min_lap, self.delta = DEF_MIN_LAP, DEF_DELTA
         self.multi, self.zround = False, False
         self.race_laps, self.race_min = 10, 0
-        self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0, "order": [], "heat": 0}
+        self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0, "order": [], "heat": 0,
+                     "heatState": "running", "heatGo": 0, "prep": 0}
+        self.prev_go = 0                   # heatGo of the heat before, for undo (RaceClock::backHeat)
         self.ssid, self.password, self.sta, self.sta_err = "", "", "off", ""
         self.scan_until = 0
         self.drivers = []                  # [{"id", "name"}]
@@ -162,7 +164,7 @@ class Timer:
                 if c.undo_driver:              # a handover after that pass is undone too (timingUndo)
                     c.driver = c.undo_driver
                     if slot == 0 and self.race["heat"] > 0:
-                        self.race["heat"] -= 1
+                        self.race.update(heat=self.race["heat"] - 1, heatState="running", heatGo=self.prev_go)
             else:
                 return False
             c.last_pass, c.undo_driver = None, 0
@@ -312,8 +314,9 @@ class Timer:
         """A finished passing from the gate (tx 0 = beam only)."""
         with self.lock:
             race = self.race
-            if race["state"] == "countdown" or (race["state"] == "running" and t // 1000 < race["go"]):
-                return
+            if race["state"] == "countdown" or (race["state"] == "running" and (
+                    t // 1000 < race["go"] or race["heatState"] != "running" or t // 1000 < race["heatGo"])):
+                return                         # before "go", or the next driver gets ready
             if tx:
                 self.ir_id, self.ir_us = tx, t
             slot = self.slot_for(tx) if tx else (-1 if self.multi else 0)
@@ -325,6 +328,10 @@ class Timer:
                            and not lap["deleted"] and lap["end"] // 1000 > race["go"])
                 if done >= race["laps"]:
                     race["heat"] += 1
+                    self.prev_go = race["heatGo"]
+                    if race["heat"] < len(race["order"]):
+                        race["heatState"] = "countdown" if race["prep"] else "waiting"
+                        race["heatGo"] = t // 1000 + race["prep"] * 1000 if race["prep"] else 0
                     self.next_heat()
 
     def heat_driver(self):
@@ -336,20 +343,39 @@ class Timer:
         while self.heat_driver() and not self.car_set_driver(0, self.heat_driver(), True):
             self.race["heat"] += 1
 
-    def race_start(self, laps, minutes, order=()):
+    def race_start(self, laps, minutes, order=(), prep=0):
         with self.lock:
             self.race_laps, self.race_min = laps, minutes
             self.reset()
             order = [d for d in order if 0 < d < 256][:MAX_DRIVERS] if laps > 0 and not self.multi else []
             self.race = {"state": "countdown", "go": now_us() // 1000 + RACE_COUNTDOWN_MS,
-                         "laps": laps, "minutes": minutes, "order": order, "heat": 0}
+                         "laps": laps, "minutes": minutes, "order": order, "heat": 0,
+                         "heatState": "running", "heatGo": 0, "prep": min(max(prep, 0), 600)}
             self.next_heat()
             self.changed()
 
+    def heat_start(self):
+        """The next driver is ready: count down now (RaceClock::startHeat)."""
+        with self.lock:
+            race, go = self.race, now_us() // 1000 + RACE_COUNTDOWN_MS
+            if race["state"] != "running" or race["heat"] >= len(race["order"]) or race["heatState"] == "running":
+                return False
+            if race["heatState"] == "countdown" and race["heatGo"] <= go:
+                return False
+            race.update(heatState="countdown", heatGo=go)
+            self.changed()
+            return True
+
     def race_tick(self):
         with self.lock:
-            if self.race["state"] == "countdown" and now_us() // 1000 >= self.race["go"]:
-                self.race["state"] = "running"
+            race, now = self.race, now_us() // 1000
+            go = race["state"] == "countdown" and now >= race["go"]
+            heat_go = race["state"] == "running" and race["heatState"] == "countdown" and now >= race["heatGo"]
+            if go:
+                race["state"] = "running"
+            if heat_go:
+                race["heatState"] = "running"  # the next driver's "go"
+            if go or heat_go:
                 for slot in self.cars:
                     self.restart(slot)
 
@@ -597,8 +623,10 @@ class Http(BaseHTTPRequestHandler):
             "/api/usb":           lambda: (setattr(timer, "zround", num("zround") != 0), True)[-1],
             "/api/race/start":    lambda: (timer.race_start(min(max(num("laps"), 0), 999),
                                                             min(max(num("minutes"), 0), 600),
-                                                            [int(x) for x in q.get("order", "").split(",") if x.strip().isdigit()]),
+                                                            [int(x) for x in q.get("order", "").split(",") if x.strip().isdigit()],
+                                                            num("prep")),
                                            True)[-1],
+            "/api/race/next":     lambda: timer.heat_start(),
             "/api/race/stop":     lambda: (timer.race.update(state="off"), True)[-1],
             "/api/calibrate":     lambda: (setattr(timer, "base", timer.raw), True)[-1],
             "/api/wifi/scan":     lambda: timer.scan_start(),

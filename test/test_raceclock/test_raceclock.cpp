@@ -74,23 +74,53 @@ void test_restart_replaces_race() {
   TEST_ASSERT_TRUE(r.update(ms(34000)));
 }
 
-void test_heats_in_order() {
+void test_heats_in_order_manual_start() {
   const uint8_t order[] = { 3, 1, 2 };
-  r.start(ms(10000), 4000, 5, 0, order, 3);
+  r.start(ms(10000), 4000, 5, 0, order, 3);              // prep 0: each next driver is started by hand
   TEST_ASSERT_EQUAL_INT(3, r.info().nHeats);
   TEST_ASSERT_EQUAL_UINT8(3, r.heatDriver());          // known before "go", so the car gets driver 3 at once
-  TEST_ASSERT_FALSE(r.heatLaps(5));                    // not racing yet
-  r.update(ms(14000));
-  TEST_ASSERT_FALSE(r.heatLaps(4));
-  TEST_ASSERT_TRUE(r.heatLaps(5));
+  TEST_ASSERT_FALSE(r.heatLaps(5, ms(11000)));         // not racing yet
+  TEST_ASSERT_TRUE(r.update(ms(14000)));
+  TEST_ASSERT_FALSE(r.heatLaps(4, ms(40000)));
+  TEST_ASSERT_TRUE(r.heatLaps(5, ms(50000)));
   TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
-  TEST_ASSERT_FALSE(r.heatLaps(0));
-  TEST_ASSERT_TRUE(r.heatLaps(5));
+  TEST_ASSERT_TRUE(r.info().heatState == HeatState::Waiting);
+  TEST_ASSERT_FALSE(r.counts(ms(52000)));               // driver 1 gets ready: the car's crossings don't count
+  TEST_ASSERT_FALSE(r.update(ms(90000)));               // waits for the start
+  TEST_ASSERT_FALSE(r.heatLaps(5, ms(90000)));
+  TEST_ASSERT_TRUE(r.startHeat(ms(100000)));
+  TEST_ASSERT_TRUE(r.info().heatState == HeatState::Countdown);
+  TEST_ASSERT_EQUAL_INT64(ms(104000), r.info().heatGoUs);
+  TEST_ASSERT_FALSE(r.update(ms(103999)));
+  TEST_ASSERT_FALSE(r.counts(ms(103000)));
+  TEST_ASSERT_TRUE(r.update(ms(104000)));               // driver 1's "go"
+  TEST_ASSERT_TRUE(r.info().heatState == HeatState::Running);
+  TEST_ASSERT_FALSE(r.counts(ms(103500)));              // queued from before their go
+  TEST_ASSERT_TRUE(r.counts(ms(104100)));
+  TEST_ASSERT_TRUE(r.heatLaps(5, ms(140000)));
   TEST_ASSERT_EQUAL_UINT8(2, r.heatDriver());
-  TEST_ASSERT_TRUE(r.heatLaps(6));
+  r.startHeat(ms(150000));
+  r.update(ms(154000));
+  TEST_ASSERT_TRUE(r.heatLaps(6, ms(190000)));
   TEST_ASSERT_EQUAL_UINT8(0, r.heatDriver());          // all done
   TEST_ASSERT_EQUAL_INT(3, r.info().heat);
-  TEST_ASSERT_FALSE(r.heatLaps(99));
+  TEST_ASSERT_FALSE(r.heatLaps(99, ms(200000)));
+  TEST_ASSERT_FALSE(r.startHeat(ms(200000)));
+}
+
+void test_heats_prep_time() {
+  const uint8_t order[] = { 1, 2 };
+  r.start(ms(0), 4000, 3, 0, order, 2, 30);
+  r.update(ms(4000));
+  TEST_ASSERT_TRUE(r.heatLaps(3, ms(40000)));
+  TEST_ASSERT_TRUE(r.info().heatState == HeatState::Countdown);
+  TEST_ASSERT_EQUAL_INT64(ms(70000), r.info().heatGoUs);   // 30 s to get ready, counting down
+  TEST_ASSERT_FALSE(r.update(ms(69000)));
+  TEST_ASSERT_TRUE(r.startHeat(ms(50000)));             // ready earlier: start counting down now
+  TEST_ASSERT_EQUAL_INT64(ms(54000), r.info().heatGoUs);
+  TEST_ASSERT_FALSE(r.startHeat(ms(51000)));            // already counting down
+  TEST_ASSERT_TRUE(r.update(ms(54000)));
+  TEST_ASSERT_TRUE(r.counts(ms(55000)));
 }
 
 void test_no_heats_without_laps_or_order() {
@@ -101,7 +131,7 @@ void test_no_heats_without_laps_or_order() {
   r.start(ms(0), 4000, 10, 0);
   TEST_ASSERT_EQUAL_UINT8(0, r.heatDriver());
   r.update(ms(4000));
-  TEST_ASSERT_FALSE(r.heatLaps(10));
+  TEST_ASSERT_FALSE(r.heatLaps(10, ms(5000)));
 }
 
 void test_heats_skip_and_limits() {
@@ -117,7 +147,7 @@ void test_restart_clears_heats() {
   const uint8_t order[] = { 1, 2 };
   r.start(ms(0), 4000, 3, 0, order, 2);
   r.update(ms(4000));
-  r.heatLaps(3);
+  r.heatLaps(3, ms(9000));
   r.start(ms(10000), 4000, 3, 0, order, 2);
   TEST_ASSERT_EQUAL_INT(0, r.info().heat);
   TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
@@ -129,12 +159,15 @@ void test_back_heat() {
   r.backHeat();                                         // nothing before the first heat
   TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
   r.update(ms(4000));
-  r.heatLaps(3);
+  r.heatLaps(3, ms(30000));
   TEST_ASSERT_EQUAL_UINT8(2, r.heatDriver());
-  r.backHeat();
+  TEST_ASSERT_FALSE(r.counts(ms(31000)));
+  r.backHeat();                                         // the pass that ended heat 1 was undone
   TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
-  TEST_ASSERT_FALSE(r.heatLaps(2));                     // its last lap was undone
-  TEST_ASSERT_TRUE(r.heatLaps(3));
+  TEST_ASSERT_TRUE(r.info().heatState == HeatState::Running);
+  TEST_ASSERT_TRUE(r.counts(ms(32000)));                // driver 1 drives on
+  TEST_ASSERT_FALSE(r.heatLaps(2, ms(33000)));          // its last lap was undone
+  TEST_ASSERT_TRUE(r.heatLaps(3, ms(36000)));
 }
 
 int main(int, char**) {
@@ -147,7 +180,8 @@ int main(int, char**) {
   RUN_TEST(test_stop_back_to_training);
   RUN_TEST(test_stop_during_countdown_never_goes);
   RUN_TEST(test_restart_replaces_race);
-  RUN_TEST(test_heats_in_order);
+  RUN_TEST(test_heats_in_order_manual_start);
+  RUN_TEST(test_heats_prep_time);
   RUN_TEST(test_no_heats_without_laps_or_order);
   RUN_TEST(test_heats_skip_and_limits);
   RUN_TEST(test_restart_clears_heats);

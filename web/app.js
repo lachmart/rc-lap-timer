@@ -335,7 +335,7 @@ function onState(s) {
   if (newLap && lastLap) {
     beep(kind !== '');
     if (!s.multi || kind === 'best') flash(kind === 'best');   // with several cars only a best lap flashes
-    announce(lastLap, kind);
+    if (!(racing() && Race.isHeats(s))) announce(lastLap, kind);   // heats: raceview.js says it all at once
   }
 
   renderLayout();

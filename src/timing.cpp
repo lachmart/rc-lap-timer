@@ -10,8 +10,8 @@
 
 static RaceClock race;
 
-// Heats: hand the car to the next driver. Their lap in progress is dropped, so their timing
-// starts at the car's next crossing (one untimed lap to hand over the transmitter).
+// Heats: hand the car to the next driver right after the last driver's heat (so undoing that pass
+// gives it back). Their timing starts at the car's first crossing after their own "go".
 static void nextHeat() {
   while (race.heatDriver() && !carsSetDriver(0, race.heatDriver(), true)) {
     race.skipHeat();                                  // driver removed meanwhile
@@ -33,7 +33,7 @@ void timingLoop() {
     if (slot < 0) continue;
     lapsCrossing(slot, p.tUs, settings.minLapMs, p.precise);
     if (slot == 0 && race.heatDriver() &&
-        race.heatLaps(lapsCountOf(0, race.heatDriver(), race.info().goUs))) nextHeat();
+        race.heatLaps(lapsCountOf(0, race.heatDriver(), race.info().goUs), p.tUs)) nextHeat();
   }
 }
 
@@ -55,14 +55,17 @@ void timingNewSession() {
   sensorResetCounters();
 }
 
-void timingRaceStart(int laps, int minutes, const uint8_t* order, int nHeats) {
+void timingRaceStart(int laps, int minutes, const uint8_t* order, int nHeats, int prepSec) {
   settingsSaveRace(laps, minutes);
   lapsReset();
   sensorResetCounters();
   if (settings.multi) nHeats = 0;                     // heats are for one car with drivers taking turns
-  race.start(esp_timer_get_time(), RACE_COUNTDOWN_MS, settings.raceLaps, settings.raceMin, order, nHeats);
+  race.start(esp_timer_get_time(), RACE_COUNTDOWN_MS, settings.raceLaps, settings.raceMin, order, nHeats,
+             prepSec < 0 ? 0 : prepSec > 600 ? 600 : prepSec);
   nextHeat();
 }
+
+bool timingHeatStart() { return race.startHeat(esp_timer_get_time()); }
 
 void timingRaceStop() { race.stop(); }
 

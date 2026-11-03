@@ -105,6 +105,7 @@
         </div>
         <div class="hn-msg" id="hnMsg"></div>
       </div>
+      <button class="wide primary go" id="heatStart" hidden>Start</button>
       <div class="hn-next" id="hnNext" hidden></div>
       <table class="board standings">
         <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
@@ -140,8 +141,16 @@
           <button type="button" id="raceAddCancel">Cancel</button>
         </form>
         <p class="hint" id="raceDmsg"></p>
-        <p class="hint">Tap to leave a driver out, tap again to put them at the end. After a driver's last lap the
-          timer hands the car to the next one; their time starts at the car's next crossing. Fastest total wins.</p>
+        <h3>Between drivers</h3>
+        <div class="seg" id="prepKind">
+          <button type="button" data-prep="0">Start button</button>
+          <button type="button" data-prep="10">10 s</button>
+          <button type="button" data-prep="30">30 s</button>
+          <button type="button" data-prep="60">60 s</button>
+        </div>
+        <p class="hint">Tap a driver to leave them out, tap again to put them at the end. After a driver's last lap
+          the next one gets ready: until someone taps Start, or for the time set. Then 3, 2, 1, go; their time
+          starts at the car's first crossing after "go". Fastest total wins.</p>
       </div>
       <button class="wide primary go" id="raceStart">Start race</button>
       <p class="hint" id="raceRules">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first

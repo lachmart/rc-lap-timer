@@ -69,7 +69,7 @@
         heat: i,
         current,
         laps: laps.length,
-        started: laps.length > 0 || (current && !!car0 && car0.running),
+        started: laps.length > 0 || (current && (race.heatState || 'running') === 'running' && !!car0 && car0.running),
         lastAt: laps.length ? laps[laps.length - 1][L.END] : null,
         lapMs: laps.map(l => l[L.MS]),
         totalMs: laps.reduce((t, l) => t + l[L.MS], 0),
@@ -116,6 +116,9 @@
       result.rows = heatRows(state);
       result.current = result.rows.find(r => r.current) || null;
       result.finished = result.allIn = race.heat >= race.order.length;
+      // Between heats the next driver gets ready: waiting for a start, or counting down to their "go"
+      result.heatState = result.allIn ? 'running' : race.heatState || 'running';
+      result.heatCountdownMs = result.heatState === 'countdown' ? Math.max(0, race.heatGo - nowMs) : 0;
       // Split: the current driver's total against the fastest full heat after the same number of laps
       const lead = result.rows.find(r => r.pos === 1 && r.finished && r.laps === race.laps);
       const cur = result.current;

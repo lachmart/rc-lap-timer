@@ -54,7 +54,8 @@ class MockContract(unittest.TestCase):
         t.car_set_driver(1, 1)
         t.passing(0x1B39, start + 40_000_000)
         t.delete(1)
-        t.race = {"state": "running", "go": start // 1000, "laps": 10, "minutes": 0, "order": [], "heat": 0}
+        t.race = {"state": "running", "go": start // 1000, "laps": 10, "minutes": 0, "order": [], "heat": 0,
+                  "heatState": "running", "heatGo": 0, "prep": 0}
         self.timer = t
 
     def assertSameShape(self, firmware, ours):

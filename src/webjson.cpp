@@ -25,6 +25,14 @@ static const char* raceStateName(RaceState r) {
   }
 }
 
+static const char* heatStateName(HeatState h) {
+  switch (h) {
+    case HeatState::Waiting:   return "waiting";
+    case HeatState::Countdown: return "countdown";
+    default:                   return "running";
+  }
+}
+
 static void addRace(std::string& j, const StateInput& in) {
   j += ",\"race\":{\"state\":\""; j += raceStateName(in.race.state);
   j += "\",\"go\":";    num(j, in.race.goUs / 1000);
@@ -33,6 +41,9 @@ static void addRace(std::string& j, const StateInput& in) {
   j += ",\"order\":[";                               // heats: driver ids in turn
   for (int i = 0; i < in.race.nHeats; i++) { if (i) j += ','; num(j, in.race.order[i]); }
   j += "],\"heat\":";  num(j, in.race.heat);
+  j += ",\"heatState\":\""; j += heatStateName(in.race.heatState);
+  j += "\",\"heatGo\":"; num(j, in.race.heatGoUs / 1000);
+  j += ",\"prep\":";  num(j, in.race.prepSec);
   j += ",\"setLaps\":"; num(j, in.setLaps);
   j += ",\"setMin\":";  num(j, in.setMin);
   j += '}';

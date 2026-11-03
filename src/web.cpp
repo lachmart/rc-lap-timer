@@ -134,7 +134,7 @@ static void handleRaceStart() {
     if (id > 0 && id < 256) order[n++] = (uint8_t)id;
     pos = comma + 1;
   }
-  timingRaceStart(argInt("laps"), argInt("minutes"), order, n);
+  timingRaceStart(argInt("laps"), argInt("minutes"), order, n, argInt("prep"));
   sendResult(true);
 }
 
@@ -206,6 +206,7 @@ void webBegin() {
   server.on("/api/mode",        HTTP_POST, []() { timingSetMulti(argInt("multi") != 0); sendResult(true); });
   server.on("/api/race/start",  HTTP_POST, handleRaceStart);
   server.on("/api/race/stop",   HTTP_POST, []() { timingRaceStop(); sendResult(true); });
+  server.on("/api/race/next",   HTTP_POST, []() { sendResult(timingHeatStart()); });
   server.on("/api/usb",         HTTP_POST, []() {
     settingsSaveMode(settings.multi, argInt("zround") != 0);
     sendResult(true);
