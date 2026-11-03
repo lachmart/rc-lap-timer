@@ -68,12 +68,22 @@
     <p class="hint">Calibrate with a clear beam aimed at the sensor. The blue LED on the board lights while the beam is broken. Discarded passes (shorter than min. lap time): <b id="ign">0</b>.</p>
   </details></div>
 
-  <div class="card"><details><summary>Wi-Fi</summary>
-    <p class="hint" id="wstat"></p>
-    <label>Home network <input id="ssid" autocomplete="off"></label>
-    <label>Password <input id="pass" type="password" autocomplete="off"></label>
-    <div class="row"><button id="wifiSave">Save and restart</button><button id="wifiForget">Forget</button></div>
-    <p class="hint">The RC_Lap_Timer network always runs. With a home network set, the timer joins it in the background and is also at http://laptimer.local, so the phone can stay on home Wi-Fi with internet. Out of range, it retries every 30 s while no phone is on RC_Lap_Timer. Tip: a phone hotspot works as the "home network" at the track.</p>
+  <div class="card"><details id="wifiCard"><summary>Wi-Fi <span class="sum" id="wsum"></span></summary>
+    <div class="wstat" id="wstat"></div>
+
+    <button class="wide" id="scan">Scan networks</button>
+    <ul class="nets" id="nets" hidden></ul>
+
+    <form id="wifiForm">
+      <label>Home network <input id="ssid" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <label>Password <input id="pass" type="password" autocomplete="off"></label>
+      <div class="row"><button>Connect</button><button type="button" id="wifiForget">Forget</button></div>
+    </form>
+
+    <p class="hint">Join your home Wi-Fi so the phone can stay on it with internet; the timer is then at
+      <b>laptimer.local</b>. The RC_Lap_Timer network always runs too, and changes here don't restart the timer.
+      Out of range, the timer retries every 30 s while no phone is on RC_Lap_Timer.
+      At the track, a phone hotspot works as the home network.</p>
   </details></div>
 </body>
 </html>

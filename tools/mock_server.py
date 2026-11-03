@@ -28,6 +28,12 @@ from urllib.parse import parse_qs, urlparse
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_LAPS, MAX_DRIVERS, MAX_NAME = 200, 8, 32
 LIVE_EVERY = 0.2
+FAKE_NETWORKS = {                  # name -> (rssi dBm, open)
+    "Lach Home": (-52, False),
+    "Neighbour 2.4": (-74, False),
+    "Cafe Free WiFi": (-83, True),
+    "Very long network name for testing": (-66, False),
+}
 
 
 def now_us():
@@ -40,7 +46,8 @@ class Timer:
     def __init__(self):
         self.lock = threading.RLock()
         self.min_lap, self.delta = 2000, 800
-        self.ssid, self.sta = "", "off"
+        self.ssid, self.password, self.sta, self.sta_err = "", "", "off", ""
+        self.scan_until = 0          # monotonic time when the fake scan finishes, 0 = idle
         self.drivers = []          # [{"id", "name"}]
         self.next_id = 1
         self.driver = 0
@@ -211,6 +218,7 @@ class Timer:
                 "count": len(self.laps), "best": min(bests) if bests else 0, "ignored": self.ignored,
                 "minLap": self.min_lap, "delta": self.delta,
                 "ssid": self.ssid, "staIp": "192.168.1.50" if self.sta == "connected" else "", "sta": self.sta,
+                "staErr": self.sta_err if self.sta == "waiting" else "", "hasPass": bool(self.password),
                 "drivers": self.drivers,
                 "stats": [{"id": k, **v} for k, v in self.stats.items()],
                 "laps": [[l[0], l[1], 1 if l[2] else 0, 1 if i and self.continues(kept[i - 1], l) else 0]
@@ -218,7 +226,40 @@ class Timer:
             }
 
     def live(self):
-        return {"t": "live", "raw": self.raw, "base": self.base, "broken": self.broken, "cur": self.cur_ms()}
+        rssi = FAKE_NETWORKS.get(self.ssid, (0, False))[0] + random.randint(-2, 2) if self.sta == "connected" else 0
+        return {"t": "live", "raw": self.raw, "base": self.base, "broken": self.broken, "cur": self.cur_ms(), "rssi": rssi}
+
+    # ------------------------------------------------------------ wlan.cpp
+    def wifi_apply(self, ssid, password):
+        """Fake join: known network + password 'wrong' fails, unknown name isn't found."""
+        self.ssid, self.password, self.sta_err = ssid, password, ""
+        self.sta = "connecting" if ssid else "off"
+        self.changed()
+        if ssid:
+            threading.Timer(2.5, self.wifi_result).start()
+
+    def wifi_result(self):
+        net = FAKE_NETWORKS.get(self.ssid)
+        if net is None:
+            self.sta, self.sta_err = "waiting", "network not found"
+        elif not net[1] and self.password == "wrong":
+            self.sta, self.sta_err = "waiting", "wrong password"
+        else:
+            self.sta = "connected"
+        self.changed()
+
+    def scan_start(self):
+        if self.sta == "connecting" or self.scan_until:
+            return False
+        self.scan_until = time.monotonic() + 2
+        return True
+
+    def scan_results(self):
+        if self.scan_until and time.monotonic() < self.scan_until:
+            return {"scanning": True, "networks": []}
+        self.scan_until = 0
+        nets = sorted(FAKE_NETWORKS.items(), key=lambda kv: -kv[1][0])
+        return {"scanning": False, "networks": [{"ssid": k, "rssi": v[0], "open": v[1]} for k, v in nets]}
 
 
 timer = Timer()
@@ -358,6 +399,8 @@ class Http(BaseHTTPRequestHandler):
             self.send(200, (WEB / name).read_bytes(), ctype)   # read every time: edit and reload
         elif path == "/api/state":
             self.send(200, json.dumps(timer.state()))
+        elif path == "/api/wifi/scan":
+            self.send(200, json.dumps(timer.scan_results()))
         else:
             self.send(404, "Not found", "text/plain")
 
@@ -389,9 +432,12 @@ class Http(BaseHTTPRequestHandler):
             timer.delta = min(max(num("delta") or timer.delta, 50), 4000)
             self.result(True)
         elif p == "/api/wifi":
-            timer.ssid = q.get("ssid", "").strip()
-            timer.sta = "connected" if timer.ssid else "off"     # pretend it joined right away
+            ssid = q.get("ssid", "").strip()
+            keep = "pass" not in q and ssid == timer.ssid        # no pass argument = keep the saved one
+            timer.wifi_apply(ssid, timer.password if keep else q.get("pass", ""))
             self.result(True)
+        elif p == "/api/wifi/scan":
+            self.result(timer.scan_start())
         elif p == "/mock/cross":
             timer.crossing(); self.result(True)
         else:

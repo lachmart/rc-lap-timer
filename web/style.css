@@ -79,3 +79,22 @@ details { margin-top: 4px }
 details summary { cursor: pointer; color: var(--mut) }
 .hint { color: var(--mut); font-size: 13px; margin: 8px 0 0 }
 a { color: var(--ok) }
+
+/* Wi-Fi */
+.sum { color: var(--mut); font-size: 13px; margin-left: 4px }
+.wstat { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size: 14px; line-height: 1.6; border-left: 3px solid var(--line) }
+.wstat.ok   { border-left-color: var(--ok) }
+.wstat.busy { border-left-color: var(--gold) }
+.wstat.bad  { border-left-color: var(--acc) }
+button.wide { width: 100% }
+.nets { list-style: none; margin: 8px 0; padding: 0 }
+.nets button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+               background: var(--bg); border: 1px solid var(--line); margin-bottom: 6px; text-align: left }
+.nets span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; vertical-align: middle }
+.bars i { width: 3px; background: var(--line); border-radius: 1px }
+.bars i:nth-child(1) { height: 25% }
+.bars i:nth-child(2) { height: 50% }
+.bars i:nth-child(3) { height: 75% }
+.bars i:nth-child(4) { height: 100% }
+.bars i.on { background: var(--ok) }

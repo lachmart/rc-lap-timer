@@ -18,8 +18,7 @@ extern const char APP_JS[]     asm("_binary_web_app_js_start");
 static WebServer        server(80);
 static WebSocketsServer ws(81);
 
-static bool     stateDirty = false;    // something outside laps changed, send state to all clients
-static uint32_t restartAt  = 0;
+static bool stateDirty = false;        // something outside laps changed, send state to all clients
 
 // ---------------------------------------------------------------- JSON
 static void addJsonString(String& j, const String& s) {
@@ -51,6 +50,8 @@ static String buildState() {
   j += ",\"ssid\":";    addJsonString(j, settings.ssid);
   j += ",\"staIp\":\""; j += wlanStaIp(); j += '"';
   j += ",\"sta\":\"";   j += wlanStaState(); j += '"';
+  j += ",\"staErr\":\""; j += wlanStaError(); j += '"';
+  j += ",\"hasPass\":";  j += settings.pass.length() ? "true" : "false";
 
   j += ",\"drivers\":[";
   for (int i = 0; i < driversCount(); i++) {
@@ -90,6 +91,7 @@ static String buildLive() {
   j += ",\"base\":";   j += l.base;
   j += ",\"broken\":"; j += l.broken ? "true" : "false";
   j += ",\"cur\":";    j += lapsCurrentMs(esp_timer_get_time());
+  j += ",\"rssi\":";   j += wlanRssi();
   j += '}';
   return j;
 }
@@ -115,10 +117,31 @@ static void handleConfig() {
   sendResult(true);
 }
 
+// Without a pass argument the saved password stays (same network, e.g. only re-connecting).
 static void handleWifi() {
-  settingsSaveWifi(server.arg("ssid"), server.arg("pass"));
+  String ssid = server.arg("ssid");
+  ssid.trim();
+  String pass = server.hasArg("pass") || ssid != settings.ssid ? server.arg("pass") : settings.pass;
+  settingsSaveWifi(ssid, pass);
+  wlanApply();                                        // no restart, the own network keeps running
   sendResult(true);
-  restartAt = millis() + 800;                         // let the response go out, then restart
+}
+
+static void handleScanResults() {
+  String j = "{\"scanning\":";
+  j += wlanScanning() ? "true" : "false";
+  j += ",\"networks\":[";
+  const WlanNetwork* list;
+  int n = wlanScanResults(list);
+  for (int i = 0; i < n; i++) {
+    if (i) j += ',';
+    j += "{\"ssid\":"; addJsonString(j, list[i].ssid);
+    j += ",\"rssi\":"; j += list[i].rssi;
+    j += ",\"open\":"; j += list[i].open ? "true" : "false";
+    j += '}';
+  }
+  j += "]}";
+  server.send(200, "application/json", j);
 }
 
 // Captive portal: phones probe URLs like /generate_204 or /hotspot-detect.html.
@@ -163,6 +186,8 @@ void webBegin() {
   server.on("/api/calibrate", HTTP_POST, []() { sensorCalibrate(); sendResult(true); });
   server.on("/api/config",    HTTP_POST, handleConfig);
   server.on("/api/wifi",      HTTP_POST, handleWifi);
+  server.on("/api/wifi/scan", HTTP_POST, []() { sendResult(wlanScanStart()); });
+  server.on("/api/wifi/scan", HTTP_GET,  handleScanResults);
 
   server.onNotFound(handleNotFound);
   server.begin();
@@ -194,6 +219,4 @@ void webLoop() {
     String l = buildLive();
     ws.broadcastTXT(l);
   }
-
-  if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
 }

@@ -115,13 +115,18 @@ minimum lap time and sensitivity. Settings are saved to flash.
 
 ### Home Wi-Fi (optional)
 
-In the **Wi-Fi** section you can enter a home network. The timer joins it in the background and is
-reachable at `http://laptimer.local` (or the IP shown in the Wi-Fi section). The phone can stay on its
-home Wi-Fi with internet. The RC_Lap_Timer network always runs as well.
+Join a home network so the phone can stay on its own Wi-Fi with internet. In the **Wi-Fi** section,
+tap **Scan networks**, pick yours, enter the password and **Connect**. Changes apply right away,
+the timer doesn't restart and the RC_Lap_Timer network keeps running. The timer is then at
+`http://laptimer.local` (or the IP shown in the Wi-Fi section).
+
+The section shows the state at a glance (also in its title when collapsed): connected with signal
+bars, connecting, or why it failed (wrong password, network not found). Leave the password empty
+to keep the saved one. The ESP32 only sees 2.4 GHz networks.
 
 If the home network is out of range or drops, the timer retries every 30 s, but only while no phone is
 on RC_Lap_Timer (searching for the router disturbs that network). Tip: at the track, set a phone
-hotspot as the "home network".
+hotspot as the home network.
 
 Note: `.local` addresses work on iPhone and desktop, not on some Androids; use the IP address there.
 
@@ -146,7 +151,9 @@ and reconnects the WebSocket. The dot in the top right shows the connection stat
 | POST | `/api/driver/select?id=2` | who's driving now (0 = nobody) |
 | POST | `/api/calibrate` | calibrate idle |
 | POST | `/api/config?minLap=2000&delta=800` | settings (ms, ADC) |
-| POST | `/api/wifi?ssid=...&pass=...` | home Wi-Fi, empty ssid = forget; restarts |
+| POST | `/api/wifi?ssid=...&pass=...` | join a home network, applied without restart; no `pass` = keep the saved one; empty ssid = forget |
+| POST | `/api/wifi/scan` | start a network scan (400 while connecting) |
+| GET | `/api/wifi/scan` | `{"scanning":false,"networks":[{"ssid","rssi","open"}]}` |
 | WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` |
 
 Failed actions (unknown lap, duplicate name, …) answer `400 {"ok":false}`.
