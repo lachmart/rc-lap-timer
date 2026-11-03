@@ -52,6 +52,42 @@
     return null;
   }
 
+  const isHeats = state => !state.multi && state.race.laps > 0 && (state.race.order || []).length > 0;
+
+  // Heats: one car, the drivers in turn (race.order), each drives race.laps laps; the timer hands the
+  // car to the next driver itself (race.heat). Ranked by the total time of their laps.
+  function heatRows(state) {
+    const race = state.race;
+    const car0 = state.cars.find(c => c.slot === 0);
+    const rows = race.order.map((driver, i) => {
+      const laps = state.laps.filter(l => l[L.CAR] === 0 && l[L.DRIVER] === driver && !l[L.DELETED]
+        && l[L.END] > race.go).slice(0, race.laps);
+      const current = i === race.heat;
+      return {
+        car: 0,
+        driver,
+        heat: i,
+        current,
+        laps: laps.length,
+        started: laps.length > 0 || (current && !!car0 && car0.running),
+        lastAt: laps.length ? laps[laps.length - 1][L.END] : null,
+        totalMs: laps.reduce((t, l) => t + l[L.MS], 0),
+        bestMs: laps.length ? Math.min(...laps.map(l => l[L.MS])) : 0,
+        finished: laps.length >= race.laps || i < race.heat,
+      };
+    });
+    const done = rows.filter(r => r.finished && r.laps === race.laps).sort((a, b) => a.totalMs - b.totalMs);
+    const rest = rows.filter(r => !done.includes(r));
+    const sorted = [...done, ...rest];
+    const lead = done[0];
+    sorted.forEach((r, i) => {
+      r.pos = i + 1;
+      r.gapLaps = 0;
+      r.gapMs = lead && r !== lead && done.includes(r) ? r.totalMs - lead.totalMs : 0;
+    });
+    return sorted;
+  }
+
   function standings(state, nowMs) {
     const race = state.race;
     const phase = race.state === 'countdown' ? 'countdown' : race.state === 'running' ? 'running' : 'off';
@@ -66,6 +102,14 @@
       rows: [],
     };
     if (phase !== 'running') return result;
+
+    if (isHeats(state)) {
+      result.heats = true;
+      result.rows = heatRows(state);
+      result.current = result.rows.find(r => r.current) || null;
+      result.finished = result.allIn = race.heat >= race.order.length;
+      return result;
+    }
 
     const by = lapsByCar(state);
     const end = winnerAt(state, by);
@@ -108,7 +152,7 @@
     return result;
   }
 
-  const api = { standings, racers, L };
+  const api = { standings, racers, isHeats, L };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Race = api;
 })(this);

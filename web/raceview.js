@@ -4,16 +4,23 @@
 let raceKind = 'laps';
 let lastCount = null;  // countdown second last announced
 let finishSaid = false;
+let heatSaid = -1;     // heat whose driver was last called up
+let heatPick = null;   // heats: driver ids in the chosen order, null = all drivers in list order
 
 const clock = ms => {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+// Who a standings row is: the driver in heats, else whoever is on the car.
+const rowName = x => x.heat !== undefined ? driverName(x.driver) : whoOn(x.car);
+
 // Race standings: recomputed on every state and a few times per second for the clock.
 function renderRace() {
   if (!racing()) return null;
   const r = Race.standings(S, serverNow());
+  $('standLast').textContent = r.heats ? 'Total' : 'Last';
+  if (r.heats) return renderHeats(r);
   const lapsRace = S.race.laps > 0;
   const lead = r.rows[0];
 
@@ -36,13 +43,40 @@ function renderRace() {
   return r;
 }
 
+// Heats: one car, the drivers in turn; the clock is the current driver's time so far.
+function renderHeats(r) {
+  const cur = r.current;
+  const n = S.race.order.length;
+  $('raceTitle').textContent = r.allIn ? 'Race finished'
+    : `Heat ${S.race.heat + 1} / ${n} · ${rowName(cur)} · lap ${Math.min(cur.laps + 1, S.race.laps)} / ${S.race.laps}`;
+  const t0 = carCur(0);
+  $('raceClock').textContent = !cur || !cur.started ? '' : clock(cur.totalMs + (t0 !== null ? t0 : 0));
+  $('countdown').hidden = true;
+  $('standings').innerHTML = standingsRows(r);
+  $('raceHint').textContent = cur && !cur.started
+    ? `${rowName(cur)}: the time starts at the car's next crossing.` : '';
+  $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
+  return r;
+}
+
 function standingsRows(r) {
+  if (r.heats) return r.rows.map(x => {
+    const full = x.finished && x.laps === S.race.laps;
+    const res = full ? (x.pos === 1 ? fmt(x.totalMs) : '+' + fmt(x.gapMs)) : x.current ? 'driving' : x.finished ? 'stopped' : 'waiting';
+    return `<tr class="${x.pos === 1 && full ? 'lead' : ''}">
+      <td>${full ? x.pos + '.' : ''}</td>
+      <td>${esc(rowName(x))}${full ? ' 🏁' : ''}</td>
+      <td>${x.laps}</td>
+      <td>${x.laps ? fmt(x.totalMs) : '–'}</td>
+      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
+      <td>${res}</td></tr>`;
+  }).join('');
   return r.rows.map(x => {
     const last = S.laps.filter(l => l[L.CAR] === x.car && !l[L.DELETED] && l[L.END] > S.race.go).pop();
     const gap = x.pos === 1 ? '' : x.gapLaps ? `+${x.gapLaps} lap${x.gapLaps > 1 ? 's' : ''}` : x.gapMs ? '+' + fmt(x.gapMs) : '';
     return `<tr class="${x.pos === 1 && x.started ? 'lead' : ''}">
       <td>${x.started ? x.pos + '.' : ''}</td>
-      <td>${esc(whoOn(x.car))}${x.finished ? ' 🏁' : ''}</td>
+      <td>${esc(rowName(x))}${x.finished ? ' 🏁' : ''}</td>
       <td>${x.laps}</td>
       <td>${last ? fmt(last[L.MS]) : '–'}</td>
       <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
@@ -51,8 +85,9 @@ function standingsRows(r) {
 }
 
 function raceOnState(s) {
-  if (s.race.state !== 'running') finishSaid = false;
+  if (s.race.state !== 'running') { finishSaid = false; heatSaid = -1; }
   renderRace();
+  renderRaceKind();
 }
 
 // Race clock, countdown voice and the big table: a few times per second is enough.
@@ -67,9 +102,13 @@ function raceTick() {
     say('Go'); tone(1320, .5);
     if (navigator.vibrate) navigator.vibrate(300);
   }
+  if (r && r.heats && r.current && S.race.heat !== heatSaid) {   // the timer handed the car over
+    heatSaid = S.race.heat;
+    say(`${rowName(r.current)}, your turn`);
+  }
   if (r && r.finished && !finishSaid) {
     finishSaid = true;
-    say(`Race finished. Winner, ${whoOn(r.rows[0].car)}`);
+    say(`Race finished. Winner, ${rowName(r.rows[0])}`);
   }
   if (!$('bigView').hidden && (multi() || racing())) renderBigTable(r);
 }
@@ -80,8 +119,13 @@ function renderBigTable(r) {
     $('bvClock').textContent = $('raceClock').textContent;
     $('bvCount').hidden = $('countdown').hidden;
     $('bvCount').textContent = $('countdown').textContent;
-    $('bvRows').innerHTML = r.rows.filter(x => x.started).map(x => `<tr class="${x.pos === 1 ? 'lead' : ''}">
-      <td>${x.pos}.</td><td class="name">${esc(whoOn(x.car))}${x.finished ? ' 🏁' : ''}</td><td>${x.laps}</td>
+    $('bvRows').innerHTML = r.heats ? r.rows.filter(x => x.started).map(x => {
+      const full = x.finished && x.laps === S.race.laps;
+      return `<tr class="${x.pos === 1 && full ? 'lead' : ''}">
+        <td>${full ? x.pos + '.' : ''}</td><td class="name">${esc(rowName(x))}${full ? ' 🏁' : ''}</td><td>${x.laps}</td>
+        <td>${full ? (x.pos === 1 ? fmt(x.totalMs) : '+' + fmt(x.gapMs)) : fmt(x.totalMs)}</td></tr>`;
+    }).join('') : r.rows.filter(x => x.started).map(x => `<tr class="${x.pos === 1 ? 'lead' : ''}">
+      <td>${x.pos}.</td><td class="name">${esc(rowName(x))}${x.finished ? ' 🏁' : ''}</td><td>${x.laps}</td>
       <td>${x.pos === 1 ? '' : x.gapLaps ? '+' + x.gapLaps + 'L' : '+' + fmt(x.gapMs)}</td></tr>`).join('');
   } else {
     $('bvTitle').textContent = 'Training';
@@ -99,7 +143,22 @@ function renderBigTable(r) {
 
 function renderRaceKind() {
   for (const b of $('raceKind').children) b.classList.toggle('on', b.dataset.kind === raceKind);
-  $('raceLenLbl').textContent = raceKind === 'laps' ? 'Number of laps' : 'Minutes';
+  $('raceLenLbl').textContent = raceKind === 'laps' ? (heatOrder().length ? 'Laps per driver' : 'Number of laps') : 'Minutes';
+  renderHeatOrder();
+}
+
+// Heats need one car, a laps race and drivers. The order is the tap order; untapped drivers sit out.
+const heatsPossible = () => S && !multi() && raceKind === 'laps' && S.drivers.length > 0;
+const heatOrder = () => !heatsPossible() ? []
+  : heatPick ? heatPick.filter(id => S.drivers.some(d => d.id === id)) : S.drivers.map(d => d.id);
+
+function renderHeatOrder() {
+  $('heatSetup').hidden = !heatsPossible();
+  if (!heatsPossible()) return;
+  const order = heatOrder();
+  const rest = S.drivers.filter(d => !order.includes(d.id));
+  $('heatOrder').innerHTML = order.map((id, i) => `<button type="button" class="chip on" data-id="${id}">${i + 1}. ${esc(driverName(id))}</button>`)
+    .concat(rest.map(d => `<button type="button" class="chip" data-id="${d.id}">${esc(d.name)}</button>`)).join('');
 }
 
 // Race setup form from the last race's settings (once, like the settings form).
@@ -127,11 +186,22 @@ function raceViewInit() {
     $('raceLen').value = kind === 'laps' ? (S.race.setLaps || 10) : (S.race.setMin || 5);
     renderRaceKind();
   };
+  $('heatOrder').onclick = e => {
+    const id = +e.target.dataset.id;
+    if (!id) return;
+    const order = heatOrder();
+    heatPick = order.includes(id) ? order.filter(x => x !== id) : [...order, id];
+    renderRaceKind();
+  };
   $('raceStart').onclick = () => {
     const n = Math.max(1, Math.round(+$('raceLen').value || 0));
     const params = raceKind === 'laps' ? { laps: n, minutes: 0 } : { laps: 0, minutes: n };
+    const order = heatOrder();
+    if (order.length) params.order = order.join(',');
     unlockAudio();
-    api('race/start', params, `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
+    api('race/start', params, order.length
+      ? `Start heats: ${order.map(driverName).join(', ')}, ${n} lap${n > 1 ? 's' : ''} each? The current session is cleared.`
+      : `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
   };
   $('raceStop').onclick = () => {
     const done = $('raceStop').textContent === 'Back to training';

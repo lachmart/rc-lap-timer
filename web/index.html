@@ -26,7 +26,7 @@
     <div class="race-head"><span class="lbl" id="raceTitle">Race</span><span class="race-clock" id="raceClock"></span></div>
     <div class="countdown" id="countdown" hidden></div>
     <table class="board standings">
-      <thead><tr><th></th><th>Driver</th><th>Laps</th><th>Last</th><th>Best</th><th>Gap</th></tr></thead>
+      <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
       <tbody id="standings"></tbody>
     </table>
     <p class="hint" id="raceHint"></p>
@@ -100,6 +100,13 @@
       <button type="button" data-kind="minutes">Minutes</button>
     </div>
     <label><span id="raceLenLbl">Number of laps</span> <input id="raceLen" type="number" min="1" max="999" value="10"></label>
+    <div id="heatSetup" hidden>
+      <div class="lbl">Drivers in turn</div>
+      <div class="chips" id="heatOrder"></div>
+      <p class="hint">Tap to leave a driver out, tap again to add them at the end. Each driver drives the laps on their own;
+        the timer hands the car to the next one by itself, whose time starts at the car's next crossing.
+        Fastest total time wins.</p>
+    </div>
     <button class="wide r" id="raceStart">Start race</button>
     <p class="hint">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first crossing after "go" starts its timing.
       The race ends when the leader completes the last lap (or crosses after the time is up); every other car finishes at its next crossing.</p>

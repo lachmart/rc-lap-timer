@@ -134,3 +134,72 @@ test('racers: transponder cars with several cars, else the beam-only car', () =>
   assert.deepEqual(racers({ multi: true, cars }).map(c => c.slot), [2, 5]);
   assert.deepEqual(racers({ multi: false, cars }).map(c => c.slot), [0]);
 });
+
+// ---------------------------------------------------------------- heats (one car, drivers in turn)
+// Laps of car 0 given as [driver, endMs, ms]; drivers 1, 2, 3 race 3 laps each in the order given.
+function heats({ laps = [], order = [1, 2, 3], heat = 0, raceLaps = 3, deleted = [], running = true } = {}) {
+  return {
+    multi: false,
+    race: { state: 'running', go: GO, laps: raceLaps, minutes: 0, order, heat },
+    cars: [{ slot: 0, driver: order[Math.min(heat, order.length - 1)], running, laps: 0 }],
+    laps: laps.map(([driver, end, ms], i) => [ms, driver, deleted.includes(i) ? 1 : 0, 1, 0, i + 1, 1, end]),
+  };
+}
+// One heat: the driver's first crossing at `start`, then the lap times.
+function heat(driver, start, ...times) {
+  const out = [];
+  let t = start;
+  for (const ms of times) { t += ms; out.push([driver, t, ms]); }
+  return out;
+}
+
+test('heats: the driver on the track is current, the others wait in order', () => {
+  const s = standings(heats({ laps: heat(1, 11000, 9000) }), 25000);
+  assert.equal(s.heats, true);
+  assert.equal(s.finished, false);
+  assert.equal(s.current.driver, 1);
+  assert.deepEqual(s.rows.map(r => [r.driver, r.laps, r.started]), [[1, 1, true], [2, 0, false], [3, 0, false]]);
+});
+
+test('heats: ranked by total time of the finished heats, gaps to the fastest', () => {
+  const laps = [...heat(1, 11000, 9000, 9000, 9000), ...heat(2, 50000, 8000, 8000, 8500), ...heat(3, 90000, 9500)];
+  const s = standings(heats({ laps, heat: 2 }), 100000);
+  assert.deepEqual(s.rows.map(r => [r.pos, r.driver, r.totalMs, r.gapMs]),
+    [[1, 2, 24500, 0], [2, 1, 27000, 2500], [3, 3, 9500, 0]]);
+  assert.equal(s.current.driver, 3);
+  assert.equal(s.rows[0].bestMs, 8000);
+});
+
+test('heats: laps beyond the heat and before "go" do not count', () => {
+  const laps = [[1, 9000, 5000], ...heat(1, 11000, 9000, 9000, 9000, 7000)];
+  const s = standings(heats({ laps, heat: 1 }), 60000);
+  const r1 = s.rows.find(r => r.driver === 1);
+  assert.equal(r1.laps, 3);
+  assert.equal(r1.totalMs, 27000);
+});
+
+test('heats: all heats done = race finished', () => {
+  const laps = [...heat(1, 11000, 9000, 9000), ...heat(2, 40000, 8000, 8000)];
+  const s = standings(heats({ laps, order: [1, 2], heat: 2, raceLaps: 2 }), 60000);
+  assert.equal(s.finished, true);
+  assert.equal(s.allIn, true);
+  assert.equal(s.current, null);
+  assert.deepEqual(s.rows.map(r => r.driver), [2, 1]);
+});
+
+test('heats: a heat the timer moved on from counts as finished even after a lap was deleted', () => {
+  const laps = [...heat(1, 11000, 9000, 9000, 9000), ...heat(2, 50000, 8000)];
+  const s = standings(heats({ laps, heat: 1, deleted: [1] }), 60000);
+  const r1 = s.rows.find(r => r.driver === 1);
+  assert.equal(r1.finished, true);
+  assert.equal(r1.laps, 2);
+  assert.equal(s.rows[0].driver, 1);                   // not a full heat, so not ranked by time, listed first anyway
+});
+
+test('heats need one car and a laps race', () => {
+  const { isHeats } = require('../../web/race.js');
+  assert.equal(isHeats(heats()), true);
+  assert.equal(isHeats({ ...heats(), multi: true }), false);
+  assert.equal(isHeats(heats({ order: [] })), false);
+  assert.equal(isHeats(heats({ raceLaps: 0 })), false);
+});

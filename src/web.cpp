@@ -122,6 +122,22 @@ static void handleConfig() {
   sendResult(true);
 }
 
+// order = comma-separated driver ids for heats (one car, laps race), e.g. order=3,1,2
+static void handleRaceStart() {
+  uint8_t order[MAX_DRIVERS];
+  int n = 0;
+  String list = server.arg("order");
+  for (int pos = 0; pos < (int)list.length() && n < MAX_DRIVERS;) {
+    int comma = list.indexOf(',', pos);
+    if (comma < 0) comma = list.length();
+    long id = list.substring(pos, comma).toInt();
+    if (id > 0 && id < 256) order[n++] = (uint8_t)id;
+    pos = comma + 1;
+  }
+  timingRaceStart(argInt("laps"), argInt("minutes"), order, n);
+  sendResult(true);
+}
+
 // Without a pass argument the saved password stays (same network, e.g. only re-connecting).
 static void handleWifi() {
   String ssid = server.arg("ssid");
@@ -188,7 +204,7 @@ void webBegin() {
   server.on("/api/car/rename",  HTTP_POST, []() { sendResult(carsRename(argInt("slot"), server.arg("name"))); });
   server.on("/api/car/remove",  HTTP_POST, []() { sendResult(carsRemove(argInt("slot"))); });
   server.on("/api/mode",        HTTP_POST, []() { timingSetMulti(argInt("multi") != 0); sendResult(true); });
-  server.on("/api/race/start",  HTTP_POST, []() { timingRaceStart(argInt("laps"), argInt("minutes")); sendResult(true); });
+  server.on("/api/race/start",  HTTP_POST, handleRaceStart);
   server.on("/api/race/stop",   HTTP_POST, []() { timingRaceStop(); sendResult(true); });
   server.on("/api/usb",         HTTP_POST, []() {
     settingsSaveMode(settings.multi, argInt("zround") != 0);

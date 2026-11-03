@@ -13,6 +13,6 @@ void     timingBegin();
 void     timingLoop();
 void     timingSetMulti(bool multi);
 void     timingNewSession();                   // clears laps, ends a race
-void     timingRaceStart(int laps, int minutes);
+void     timingRaceStart(int laps, int minutes, const uint8_t* order = nullptr, int nHeats = 0);
 void     timingRaceStop();                     // back to training, laps stay
 RaceInfo timingRace();

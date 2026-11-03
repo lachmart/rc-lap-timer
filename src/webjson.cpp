@@ -30,6 +30,9 @@ static void addRace(std::string& j, const StateInput& in) {
   j += "\",\"go\":";    num(j, in.race.goUs / 1000);
   j += ",\"laps\":";    num(j, in.race.laps);
   j += ",\"minutes\":"; num(j, in.race.minutes);
+  j += ",\"order\":[";                               // heats: driver ids in turn
+  for (int i = 0; i < in.race.nHeats; i++) { if (i) j += ','; num(j, in.race.order[i]); }
+  j += "],\"heat\":";  num(j, in.race.heat);
   j += ",\"setLaps\":"; num(j, in.setLaps);
   j += ",\"setMin\":";  num(j, in.setMin);
   j += '}';

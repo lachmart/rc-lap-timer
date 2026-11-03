@@ -116,6 +116,17 @@ void lapsCrossing(int car, int64_t nowUs, uint32_t minLapMs, bool precise) {
   UNLOCK();
 }
 
+int lapsCountOf(int car, uint8_t driver, int64_t afterUs) {
+  int n = 0;
+  LOCK();
+  for (int i = oldestKept(); i < lapCount; i++) {
+    const Lap& l = lapAt(i);
+    if (l.car == car && l.driver == driver && !l.deleted && l.endUs > afterUs) n++;
+  }
+  UNLOCK();
+  return n;
+}
+
 void lapsReset() {
   LOCK();
   for (Car& c : cars) { uint8_t d = c.driver; c = Car(); c.driver = d; }

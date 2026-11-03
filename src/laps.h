@@ -58,6 +58,7 @@ void     lapsRestart(int car);                 // drop the car's lap in progress
 bool     lapsDelete(int seq);                  // delete lap by session lap number (1-based)
 bool     lapsJoin(int seq);                    // a false trigger split a lap: merge it with the same car's next lap
 bool     lapsContinues(const Lap& prev, const Lap& next);   // next started exactly where prev ended
+int      lapsCountOf(int car, uint8_t driver, int64_t afterUs);   // counted laps ending after afterUs
 void     lapsSnapshot(LapSnapshot& out, int64_t nowUs);
 long     lapsCurrentMs(int car, int64_t nowUs);
 uint32_t lapsRevision();                       // changes on every update, the web uses it to broadcast state

@@ -440,6 +440,26 @@ void test_ring_buffer_keeps_last_laps_and_stats_of_all() {
   TEST_ASSERT_TRUE(lapsDelete(26));
 }
 
+// ---------------------------------------------------------------- heats
+void test_count_of_driver_after_time() {
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(5), MIN_LAP);                     // before "go" at 6 s
+  lapsCrossing(0, s(9), MIN_LAP);
+  lapsCrossing(0, s(13), MIN_LAP);
+  lapsCrossing(0, s(17), MIN_LAP);
+  lapsSetDriver(1, 1);                                // the other car, same driver: not counted for car 0
+  lapsSetDriver(1, 2);
+  lapsCrossing(1, s(2), MIN_LAP);
+  lapsCrossing(1, s(10), MIN_LAP);
+  TEST_ASSERT_EQUAL_INT(3, lapsCountOf(0, 1, s(6)));
+  TEST_ASSERT_EQUAL_INT(4, lapsCountOf(0, 1, 0));
+  TEST_ASSERT_EQUAL_INT(0, lapsCountOf(0, 2, 0));
+  lapsDelete(3);                                      // deleted laps don't count
+  TEST_ASSERT_EQUAL_INT(2, lapsCountOf(0, 1, s(6)));
+  lapsSetDriver(1, 0);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_first_pass_only_starts);
@@ -472,5 +492,6 @@ int main() {
   RUN_TEST(test_imprecise_flag_kept);
   RUN_TEST(test_ring_buffer_keeps_last_laps_and_stats_of_all);
   RUN_TEST(test_undo_and_join_with_full_ring_never_expose_overwritten_laps);
+  RUN_TEST(test_count_of_driver_after_time);
   return UNITY_END();
 }

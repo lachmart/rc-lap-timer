@@ -80,7 +80,7 @@ class Timer:
         self.min_lap, self.delta = DEF_MIN_LAP, DEF_DELTA
         self.multi, self.zround = False, False
         self.race_laps, self.race_min = 10, 0
-        self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0}
+        self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0, "order": [], "heat": 0}
         self.ssid, self.password, self.sta, self.sta_err = "", "", "off", ""
         self.scan_until = 0
         self.drivers = []                  # [{"id", "name"}]
@@ -307,15 +307,33 @@ class Timer:
             if tx:
                 self.ir_id, self.ir_us = tx, t
             slot = self.slot_for(tx) if tx else (-1 if self.multi else 0)
-            if slot >= 0:
-                self.crossing(slot, t, precise)
+            if slot < 0:
+                return
+            self.crossing(slot, t, precise)
+            if slot == 0 and race["state"] == "running" and self.heat_driver():
+                done = sum(1 for lap in self.laps if lap["car"] == 0 and lap["driver"] == self.heat_driver()
+                           and not lap["deleted"] and lap["end"] // 1000 > race["go"])
+                if done >= race["laps"]:
+                    race["heat"] += 1
+                    self.next_heat()
 
-    def race_start(self, laps, minutes):
+    def heat_driver(self):
+        order, heat = self.race["order"], self.race["heat"]
+        return order[heat] if heat < len(order) else 0
+
+    def next_heat(self):
+        """Hand the car to the next driver; their timing starts at the car's next crossing."""
+        while self.heat_driver() and not self.car_set_driver(0, self.heat_driver()):
+            self.race["heat"] += 1
+
+    def race_start(self, laps, minutes, order=()):
         with self.lock:
             self.race_laps, self.race_min = laps, minutes
             self.reset()
+            order = [d for d in order if 0 < d < 256][:MAX_DRIVERS] if laps > 0 and not self.multi else []
             self.race = {"state": "countdown", "go": now_us() // 1000 + RACE_COUNTDOWN_MS,
-                         "laps": laps, "minutes": minutes}
+                         "laps": laps, "minutes": minutes, "order": order, "heat": 0}
+            self.next_heat()
             self.changed()
 
     def race_tick(self):
@@ -568,7 +586,9 @@ class Http(BaseHTTPRequestHandler):
             "/api/mode":          lambda: (setattr(timer, "multi", num("multi") != 0), True)[-1],
             "/api/usb":           lambda: (setattr(timer, "zround", num("zround") != 0), True)[-1],
             "/api/race/start":    lambda: (timer.race_start(min(max(num("laps"), 0), 999),
-                                                            min(max(num("minutes"), 0), 600)), True)[-1],
+                                                            min(max(num("minutes"), 0), 600),
+                                                            [int(x) for x in q.get("order", "").split(",") if x.strip().isdigit()]),
+                                           True)[-1],
             "/api/race/stop":     lambda: (timer.race.update(state="off"), True)[-1],
             "/api/calibrate":     lambda: (setattr(timer, "base", timer.raw), True)[-1],
             "/api/wifi/scan":     lambda: timer.scan_start(),

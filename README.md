@@ -58,7 +58,7 @@ src/
   nec.*, blink.*   transponder decoders: RiCino NEC code, NE556 blink rate (unit-tested)
   passes.*         beam breaks + transponder sightings → passings (unit-tested)
   timing.*         passings → cars → laps, single/multi-car mode, races
-  raceclock.*      race phases: countdown, go, which passings count (unit-tested)
+  raceclock.*      race phases: countdown, go, which passings count, heats (unit-tested)
   laps.*           per-car laps, per-driver stats, corrections (unit-tested)
   cars.*           transponder cars (learned, saved), who drives which car
   drivers.*        driver names in flash
@@ -155,6 +155,11 @@ ends when the leader completes the last lap (or, in a time race, crosses the lin
 every other car finishes at its next crossing (🏁). **Stop race** / **Back to training** returns to
 training, the laps stay. Undo, join and delete also work in a race; the standings follow.
 
+**Heats (one car, drivers in turn):** with one car and a laps race, **Race** shows the drivers in turn; tap
+to leave one out or change the order. Each driver drives the laps on their own: after a driver's last lap
+the timer hands the car to the next one by itself (no tap needed), whose time starts at the car's next
+crossing, so there is one untimed lap to hand over the transmitter. Fastest total time wins.
+
 ### ZRound
 
 In **USB / ZRound** the timer becomes a ZRound decoder on the USB port (RiCino protocol, 19200 baud).
@@ -236,7 +241,7 @@ and reconnects the WebSocket. The dot in the top right shows the connection stat
 | POST | `/api/car/rename?slot=1&name=Buggy` | name a transponder car |
 | POST | `/api/car/remove?slot=1` | forget a transponder car |
 | POST | `/api/mode?multi=1` | several cars with transponders (1) or one beam-only car (0) |
-| POST | `/api/race/start?laps=10&minutes=0` | new session + countdown; laps or minutes |
+| POST | `/api/race/start?laps=10&minutes=0[&order=2,3,1]` | new session + countdown; laps or minutes; `order` = heats (one car, laps race): driver ids in turn |
 | POST | `/api/race/stop` | back to training, laps stay |
 | POST | `/api/usb?zround=1` | USB port: ZRound decoder (1) or debug log (0) |
 | POST | `/api/calibrate` | calibrate idle |
