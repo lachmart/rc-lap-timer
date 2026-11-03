@@ -9,6 +9,8 @@ const WS_PORT = new URLSearchParams(location.search).get('ws') || 81;   // ?ws= 
 // lap entry fields: [ms, driver, deleted, continues, car, num, precise, endMs]
 const L = { MS: 0, DRIVER: 1, DELETED: 2, CONT: 3, CAR: 4, NUM: 5, PRECISE: 6, END: 7 };
 const STATS_CAR = 0x100;
+const NEC_ID_MIN = 0x1000;   // transponder ids from here on are RiCino codes, below are NE556 blink rates
+const MAX_DRIVERS = 8;
 
 let S = null;          // latest state from the server
 let clockOffset = 0;   // server ms − performance.now()
@@ -37,11 +39,12 @@ const driverName = id => {
   return d ? d.name : '';
 };
 const carBySlot = slot => S && S.cars.find(c => c.slot === slot);
+const txLabel = tx => tx >= NEC_ID_MIN ? '#' + tx.toString(16).toUpperCase() : tx + ' Hz';
 function carLabel(car) {
   if (!car) return 'removed car';
   if (car.name) return car.name;
   if (!car.tx) return 'Car';
-  return car.tx >= 0x1000 ? '#' + car.tx.toString(16).toUpperCase() : car.tx + ' Hz';
+  return txLabel(car.tx);
 }
 // Who is on a car: the driver if assigned, else the car's label.
 const whoOn = slot => {
@@ -51,6 +54,7 @@ const whoOn = slot => {
 const lapKey = lap => lap[L.DRIVER] || (STATS_CAR | lap[L.CAR]);
 const keyName = key => key & STATS_CAR ? carLabel(carBySlot(key & 0xff)) : driverName(key);
 const statsOf = key => S.stats.find(s => s.key === key);
+const countedLaps = slot => S.laps.filter(l => l[L.CAR] === slot && !l[L.DELETED]);
 const avg = (total, count) => count ? total / count : 0;
 const multi = () => S && S.multi;
 const trackCars = () => S.cars.filter(c => multi() ? c.slot > 0 : c.slot === 0);
@@ -233,7 +237,7 @@ function renderDrivers() {
 
   $('dlist').innerHTML = S.drivers
     .map(d => `<li><span>${esc(d.name)}</span><button data-id="${d.id}" title="Remove">✕</button></li>`).join('');
-  $('addForm').hidden = S.drivers.length >= 8;
+  $('addForm').hidden = S.drivers.length >= MAX_DRIVERS;
 }
 
 function renderBoard() {
@@ -296,7 +300,7 @@ function renderTrack() {
   const cars = trackCars();
   if (openCar >= 0 && !carBySlot(openCar)) openCar = -1;
   $('track').innerHTML = cars.map(c => {
-    const laps = S.laps.filter(l => l[L.CAR] === c.slot && !l[L.DELETED]);
+    const laps = countedLaps(c.slot);
     const last = laps.length ? laps[laps.length - 1][L.MS] : 0;
     const best = laps.length ? Math.min(...laps.map(l => l[L.MS])) : 0;
     let row = `<tr class="${best && best === S.best ? 'lead' : ''}">
@@ -365,7 +369,7 @@ function renderCars() {
   $('csum').textContent = S.multi ? `· ${cars.length} car${cars.length === 1 ? '' : 's'}` : '';
   if ($('cars').contains(document.activeElement)) return;   // don't rebuild while a name is being typed
   $('cars').innerHTML = cars.map(c => `<li>
-      <span class="tx">${c.tx >= 0x1000 ? '#' + c.tx.toString(16).toUpperCase() : c.tx + ' Hz'}</span>
+      <span class="tx">${txLabel(c.tx)}</span>
       <input data-rename="${c.slot}" value="${esc(c.name)}" placeholder="name" maxlength="16">
       <button data-remove="${c.slot}" title="Remove">✕</button></li>`).join('');
 }
@@ -504,7 +508,7 @@ function onLive(l) {
 
 function renderIr(l) {
   const ago = l.irAgo;
-  const id = l.irId >= 0x1000 ? '#' + l.irId.toString(16).toUpperCase() : l.irId + ' Hz';
+  const id = txLabel(l.irId);
   $('irStat').className = 'wstat ' + (l.irId && ago < 2000 ? 'ok' : '');
   $('irStat').textContent = (!l.irId ? 'IR receiver: no transponder seen yet.'
     : `IR receiver: last transponder ${id}, ${ago < 1000 ? 'just now' : Math.round(ago / 1000) + ' s ago'}.`)
@@ -609,7 +613,7 @@ function renderBigTable(r) {
     $('bvClock').textContent = '';
     $('bvCount').hidden = true;
     $('bvRows').innerHTML = '<tr><th>Car</th><th>Now</th><th>Last</th></tr>' + trackCars().map(c => {
-      const laps = S.laps.filter(l => l[L.CAR] === c.slot && !l[L.DELETED]);
+      const laps = countedLaps(c.slot);
       const last = laps.length ? laps[laps.length - 1][L.MS] : 0;
       const t = carCur(c.slot);
       return `<tr><td class="name">${esc(whoOn(c.slot))}</td><td>${t !== null ? fmt(t).slice(0, -2) : '–'}</td>
@@ -697,7 +701,7 @@ $('addForm').onsubmit = async e => {
     $('newName').value = '';
     $('dmsg').textContent = 'Switching driver drops that car\'s lap in progress, its next pass starts the new driver\'s lap.';
   } else {
-    $('dmsg').textContent = `Couldn't add "${name}": the name is taken or there are already 8 drivers.`;
+    $('dmsg').textContent = `Couldn't add "${name}": the name is taken or there are already ${MAX_DRIVERS} drivers.`;
   }
 };
 
