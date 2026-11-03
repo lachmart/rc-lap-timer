@@ -7,15 +7,7 @@
 // so corrections (undo, join, delete) are always reflected.
 #pragma once
 #include <stdint.h>
-
-enum class RaceState : uint8_t { Off, Countdown, Running };
-
-struct RaceInfo {
-  RaceState state;
-  int64_t   goUs;      // when the countdown ends (esp_timer µs)
-  int       laps;      // race length in laps, 0 = time race
-  int       minutes;   // race length in minutes, 0 = laps race
-};
+#include "raceclock.h"
 
 void     timingBegin();
 void     timingLoop();
