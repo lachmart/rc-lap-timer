@@ -3,7 +3,7 @@
 let beepOn = false, voiceOn = false, ac = null;
 
 function setToggle(btn, on, label) {
-  btn.textContent = (on ? '🔊 ' : '🔇 ') + label;
+  btn.textContent = label;
   btn.classList.toggle('on', on);
   btn.setAttribute('aria-pressed', on);
 }
