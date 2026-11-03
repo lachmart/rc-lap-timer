@@ -6,8 +6,7 @@ const fmt = ms => (ms / 1000).toFixed(3);
 const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const WS_PORT = new URLSearchParams(location.search).get('ws') || 81;   // ?ws= for the mock server
 
-// lap entry fields: [ms, driver, deleted, continues, car, num, precise, endMs]
-const L = { MS: 0, DRIVER: 1, DELETED: 2, CONT: 3, CAR: 4, NUM: 5, PRECISE: 6, END: 7 };
+const { L, racers } = Race;   // lap entry fields and the cars in a race, from race.js
 const STATS_CAR = 0x100;
 const NEC_ID_MIN = 0x1000;   // transponder ids from here on are RiCino codes, below are NE556 blink rates
 const MAX_DRIVERS = 8;
@@ -57,7 +56,7 @@ const statsOf = key => S.stats.find(s => s.key === key);
 const countedLaps = slot => S.laps.filter(l => l[L.CAR] === slot && !l[L.DELETED]);
 const avg = (total, count) => count ? total / count : 0;
 const multi = () => S && S.multi;
-const trackCars = () => S.cars.filter(c => multi() ? c.slot > 0 : c.slot === 0);
+const trackCars = () => racers(S);
 const carCur = slot => {
   const car = carBySlot(slot);
   return car && car.running ? (curMs[slot] || 0) + (performance.now() - curAt) : null;
@@ -325,7 +324,7 @@ const clock = ms => {
 
 // Race standings: recomputed on every state and a few times per second for the clock.
 function renderRace() {
-  if (!racing() || !window.Race) return null;
+  if (!racing()) return null;
   const r = Race.standings(S, serverNow());
   const lapsRace = S.race.laps > 0;
   const lead = r.rows[0];

@@ -332,7 +332,7 @@ class Timer:
             stats = self.stats()
             bests = [s["best"] for s in stats if s["best"]]
             prev_of = {}
-            laps = []
+            laps = []                      # entries as L in web/race.js
             for lap in kept:
                 p = prev_of.get(lap["car"])
                 prev_of[lap["car"]] = lap

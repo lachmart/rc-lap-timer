@@ -2,10 +2,11 @@
 // the app and unit-tested with node (test/js/race.test.js).
 //
 // Lap entries: [ms, driver, deleted, continues, car, num, precise, endMs], oldest first.
+// L is the one definition of that layout for the app; src/web.cpp and tools/mock_server.py write it.
 (function (root) {
   'use strict';
 
-  const L = { MS: 0, DRIVER: 1, DELETED: 2, CAR: 4, END: 7 };
+  const L = { MS: 0, DRIVER: 1, DELETED: 2, CONT: 3, CAR: 4, NUM: 5, PRECISE: 6, END: 7 };
 
   // Cars in the race: transponder cars with several cars, else the one beam-only car (slot 0).
   const racers = state => state.cars.filter(c => state.multi ? c.slot > 0 : c.slot === 0);
@@ -107,7 +108,7 @@
     return result;
   }
 
-  const api = { standings };
+  const api = { standings, racers, L };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Race = api;
 })(this);

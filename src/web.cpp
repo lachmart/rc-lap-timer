@@ -103,7 +103,7 @@ static void addStats(String& j, const LapSnapshot& s) {
   j += ']';
 }
 
-// [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first
+// [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first; read by the app through L in web/race.js
 static void addLaps(String& j, const LapSnapshot& s) {
   j += ",\"laps\":[";
   int prevOfCar[MAX_CARS];

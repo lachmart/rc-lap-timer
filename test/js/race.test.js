@@ -1,4 +1,4 @@
-// Race standings tests: node --test test/js
+// Race standings tests: node --test test/js/*.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { standings } = require('../../web/race.js');
@@ -126,4 +126,11 @@ test('one car: only the beam-only car races', () => {
   const st = state({ raceLaps: 5, laps: car(0, 10000, 8000), cars: [0, 1] });
   st.multi = false;
   assert.deepEqual(standings(st, 30000).rows.map(r => r.car), [0]);
+});
+
+test('racers: transponder cars with several cars, else the beam-only car', () => {
+  const { racers } = require('../../web/race.js');
+  const cars = [{ slot: 0 }, { slot: 2 }, { slot: 5 }];
+  assert.deepEqual(racers({ multi: true, cars }).map(c => c.slot), [2, 5]);
+  assert.deepEqual(racers({ multi: false, cars }).map(c => c.slot), [0]);
 });
