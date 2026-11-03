@@ -70,6 +70,7 @@ class Car:
         self.last_cross = self.prev_cross = 0
         self.last_pass = None              # None | "start" | "lap"
         self.num = 0
+        self.undo_driver = 0               # driver before a handover right after the last pass
 
 
 class Timer:
@@ -102,7 +103,7 @@ class Timer:
         with self.lock:
             for c in self.cars.values():
                 c.last_cross = c.prev_cross = 0
-                c.last_pass, c.num = None, 0
+                c.last_pass, c.num, c.undo_driver = None, 0, 0
             self.laps, self.ignored, self.unident = [], 0, 0
             self.forgotten = set()
             self.changed()
@@ -119,6 +120,7 @@ class Timer:
             c = self.cars.get(slot)
             if c is None:
                 return
+            c.undo_driver = 0
             if c.last_cross == 0:
                 c.last_cross, c.prev_cross, c.last_pass = t, 0, "start"
             elif t - c.last_cross >= self.min_lap * 1000:
@@ -130,10 +132,14 @@ class Timer:
                 self.ignored += 1
             self.changed()
 
-    def set_driver(self, slot, did):
+    def set_driver(self, slot, did, hand_over=False):
         c = self.cars[slot]
         if did != c.driver:
-            c.driver, c.last_cross, c.last_pass = did, 0, None
+            if hand_over and c.last_pass == "lap":
+                c.undo_driver = c.driver       # the last pass stays undoable (lapsSetDriver handOver)
+            else:
+                c.undo_driver, c.last_pass = 0, None
+            c.driver, c.last_cross = did, 0
             self.changed()
 
     def last_lap_index(self, slot):
@@ -153,16 +159,20 @@ class Timer:
                 del self.laps[self.last_lap_index(slot)]
                 c.num -= 1
                 c.last_cross = c.prev_cross
+                if c.undo_driver:              # a handover after that pass is undone too (timingUndo)
+                    c.driver = c.undo_driver
+                    if slot == 0 and self.race["heat"] > 0:
+                        self.race["heat"] -= 1
             else:
                 return False
-            c.last_pass = None
+            c.last_pass, c.undo_driver = None, 0
             self.changed()
             return True
 
     def restart(self, slot):
         with self.lock:
             if slot in self.cars:
-                self.cars[slot].last_cross, self.cars[slot].last_pass = 0, None
+                self.cars[slot].last_cross, self.cars[slot].last_pass, self.cars[slot].undo_driver = 0, None, 0
                 self.changed()
 
     def delete(self, seq):
@@ -257,7 +267,7 @@ class Timer:
             self.changed()
             return True
 
-    def car_set_driver(self, slot, did):
+    def car_set_driver(self, slot, did, hand_over=False):
         with self.lock:
             if slot not in self.cars or (did and not any(d["id"] == did for d in self.drivers)):
                 return False
@@ -265,7 +275,7 @@ class Timer:
                 for s, c in self.cars.items():
                     if s != slot and c.driver == did:
                         self.set_driver(s, 0)
-            self.set_driver(slot, did)
+            self.set_driver(slot, did, hand_over)
             self.changed()
             return True
 
@@ -323,7 +333,7 @@ class Timer:
 
     def next_heat(self):
         """Hand the car to the next driver; their timing starts at the car's next crossing."""
-        while self.heat_driver() and not self.car_set_driver(0, self.heat_driver()):
+        while self.heat_driver() and not self.car_set_driver(0, self.heat_driver(), True):
             self.race["heat"] += 1
 
     def race_start(self, laps, minutes, order=()):

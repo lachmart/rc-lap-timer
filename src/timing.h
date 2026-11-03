@@ -12,6 +12,7 @@
 void     timingBegin();
 void     timingLoop();
 void     timingSetMulti(bool multi);
+bool     timingUndo(int car);                  // lapsUndo(), and in heats also undoes the handover it caused
 void     timingNewSession();                   // clears laps, ends a race
 void     timingRaceStart(int laps, int minutes, const uint8_t* order = nullptr, int nHeats = 0);
 void     timingRaceStop();                     // back to training, laps stay

@@ -190,7 +190,7 @@ void webBegin() {
 
   // session
   server.on("/api/reset",      HTTP_POST, []() { timingNewSession(); sendResult(true); });
-  server.on("/api/undo",       HTTP_POST, []() { sendResult(lapsUndo(argInt("car"))); });
+  server.on("/api/undo",       HTTP_POST, []() { sendResult(timingUndo(argInt("car"))); });
   server.on("/api/restart",    HTTP_POST, []() { lapsRestart(argInt("car")); sendResult(true); });
   server.on("/api/lap/delete", HTTP_POST, []() { sendResult(lapsDelete(argInt("n"))); });
   server.on("/api/lap/join",   HTTP_POST, []() { sendResult(lapsJoin(argInt("n"))); });

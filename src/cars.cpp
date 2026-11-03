@@ -76,12 +76,12 @@ bool carsRemove(int slot) {
   return true;
 }
 
-bool carsSetDriver(int slot, uint8_t driver) {
+bool carsSetDriver(int slot, uint8_t driver, bool handOver) {
   if (!carsUsed(slot) || (driver && !driversExists(driver))) return false;
   if (driver) {
     for (int s = 0; s < MAX_CARS; s++) if (s != slot && lapsDriver(s) == driver) lapsSetDriver(s, 0);
   }
-  lapsSetDriver(slot, driver);
+  lapsSetDriver(slot, driver, handOver);
   save();
   return true;
 }

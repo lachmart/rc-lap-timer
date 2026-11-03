@@ -123,6 +123,20 @@ void test_restart_clears_heats() {
   TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
 }
 
+void test_back_heat() {
+  const uint8_t order[] = { 1, 2 };
+  r.start(ms(0), 4000, 3, 0, order, 2);
+  r.backHeat();                                         // nothing before the first heat
+  TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
+  r.update(ms(4000));
+  r.heatLaps(3);
+  TEST_ASSERT_EQUAL_UINT8(2, r.heatDriver());
+  r.backHeat();
+  TEST_ASSERT_EQUAL_UINT8(1, r.heatDriver());
+  TEST_ASSERT_FALSE(r.heatLaps(2));                     // its last lap was undone
+  TEST_ASSERT_TRUE(r.heatLaps(3));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_training_counts_everything);
@@ -137,5 +151,6 @@ int main(int, char**) {
   RUN_TEST(test_no_heats_without_laps_or_order);
   RUN_TEST(test_heats_skip_and_limits);
   RUN_TEST(test_restart_clears_heats);
+  RUN_TEST(test_back_heat);
   return UNITY_END();
 }

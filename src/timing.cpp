@@ -13,7 +13,7 @@ static RaceClock race;
 // Heats: hand the car to the next driver. Their lap in progress is dropped, so their timing
 // starts at the car's next crossing (one untimed lap to hand over the transmitter).
 static void nextHeat() {
-  while (race.heatDriver() && !carsSetDriver(0, race.heatDriver())) {
+  while (race.heatDriver() && !carsSetDriver(0, race.heatDriver(), true)) {
     race.skipHeat();                                  // driver removed meanwhile
   }
 }
@@ -40,6 +40,13 @@ void timingLoop() {
 void timingSetMulti(bool multi) {
   settingsSaveMode(multi, settings.zround);
   sensorSetMulti(multi);
+}
+
+bool timingUndo(int car) {
+  uint8_t before = lapsDriver(car);
+  if (!lapsUndo(car)) return false;
+  if (car == 0 && lapsDriver(0) != before) race.backHeat();   // undid a heat's last lap: the car is back
+  return true;
 }
 
 void timingNewSession() {

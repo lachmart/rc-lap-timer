@@ -460,6 +460,51 @@ void test_count_of_driver_after_time() {
   lapsSetDriver(1, 0);
 }
 
+void test_handover_keeps_undo_and_undo_gives_car_back() {
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsCrossing(0, s(12.5), MIN_LAP);                  // false trigger ended driver 1's heat...
+  lapsSetDriver(0, 2, true);                          // ...and the timer handed the car over
+  take(13);
+  TEST_ASSERT_EQUAL_UINT8(2, snap.cars[0].driver);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
+  TEST_ASSERT_TRUE(snap.cars[0].canUndo);
+  TEST_ASSERT_TRUE(lapsUndo(0));
+  take(14);
+  TEST_ASSERT_EQUAL_UINT8(1, snap.cars[0].driver);    // back to driver 1, lap continues from 10 s
+  TEST_ASSERT_TRUE(snap.cars[0].running);
+  TEST_ASSERT_EQUAL(4000, snap.cars[0].curMs);
+  TEST_ASSERT_EQUAL_INT(1, snap.n);
+  lapsCrossing(0, s(19), MIN_LAP);
+  take(20);
+  TEST_ASSERT_EQUAL(9000, snap.laps[1].ms);
+  TEST_ASSERT_EQUAL_UINT8(1, snap.laps[1].driver);
+}
+
+void test_undo_after_handover_start_pass_keeps_new_driver() {
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsSetDriver(0, 2, true);
+  lapsCrossing(0, s(15), MIN_LAP);                    // driver 2's start pass (false)
+  TEST_ASSERT_TRUE(lapsUndo(0));
+  take(16);
+  TEST_ASSERT_EQUAL_UINT8(2, snap.cars[0].driver);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
+  TEST_ASSERT_FALSE(lapsUndo(0));                     // one level only
+}
+
+void test_plain_driver_change_drops_undo() {
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsSetDriver(0, 2);
+  TEST_ASSERT_FALSE(lapsUndo(0));
+  take(11);
+  TEST_ASSERT_EQUAL_UINT8(2, snap.cars[0].driver);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_first_pass_only_starts);
@@ -493,5 +538,8 @@ int main() {
   RUN_TEST(test_ring_buffer_keeps_last_laps_and_stats_of_all);
   RUN_TEST(test_undo_and_join_with_full_ring_never_expose_overwritten_laps);
   RUN_TEST(test_count_of_driver_after_time);
+  RUN_TEST(test_handover_keeps_undo_and_undo_gives_car_back);
+  RUN_TEST(test_undo_after_handover_start_pass_keeps_new_driver);
+  RUN_TEST(test_plain_driver_change_drops_undo);
   return UNITY_END();
 }

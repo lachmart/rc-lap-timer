@@ -50,7 +50,9 @@ struct LapSnapshot {
 
 void     lapsCrossing(int car, int64_t nowUs, uint32_t minLapMs, bool precise = true);
 void     lapsReset();                          // new session, drivers stay with their cars
-void     lapsSetDriver(int car, uint8_t id);   // a different driver drops that car's lap in progress
+// A different driver drops that car's lap in progress. handOver (heats): the pass that just ended
+// the previous driver's lap stays undoable, and undoing it gives the car back to them.
+void     lapsSetDriver(int car, uint8_t id, bool handOver = false);
 uint8_t  lapsDriver(int car);
 void     lapsForgetDriver(uint8_t id);         // driver removed: drop their stats
 bool     lapsUndo(int car);                    // undo the car's last pass (false trigger), lap continues from the previous one

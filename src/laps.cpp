@@ -18,6 +18,7 @@ struct Car {
   LastPass lastPass    = LastPass::None;
   uint8_t  driver      = 0;
   uint16_t num         = 0;      // laps numbered so far
+  uint8_t  undoDriver  = 0;      // driver before a handover right after the last pass, undo gives the car back
 };
 
 static Car         cars[MAX_CARS];
@@ -94,6 +95,7 @@ void lapsCrossing(int car, int64_t nowUs, uint32_t minLapMs, bool precise) {
   if (!validCar(car)) return;
   LOCK();
   Car& c = cars[car];
+  c.undoDriver = 0;
   if (c.lastCrossUs == 0) {
     c.lastCrossUs = nowUs;                            // the start pass only starts timing
     c.prevCrossUs = 0;
@@ -135,14 +137,19 @@ void lapsReset() {
   UNLOCK();
 }
 
-void lapsSetDriver(int car, uint8_t id) {
+void lapsSetDriver(int car, uint8_t id, bool handOver) {
   if (!validCar(car)) return;
   LOCK();
   Car& c = cars[car];
   if (id != c.driver) {
+    if (handOver && c.lastPass == LastPass::Lap) {
+      c.undoDriver = c.driver;                        // the last pass stays undoable
+    } else {
+      c.undoDriver = 0;
+      c.lastPass = LastPass::None;
+    }
     c.driver = id;
     c.lastCrossUs = 0;                                // the lap in progress would mix two drivers
-    c.lastPass = LastPass::None;
     changed();
   }
   UNLOCK();
@@ -173,10 +180,12 @@ bool lapsUndo(int car) {
     c.num--;
     if (!l.deleted) removeFromStats(l);
     c.lastCrossUs = c.prevCrossUs;                    // the lap continues from the real previous pass
+    if (c.undoDriver) c.driver = c.undoDriver;        // a handover after that pass is undone too
   } else {
     ok = false;
   }
   c.lastPass = LastPass::None;                        // only one level of undo
+  c.undoDriver = 0;
   if (ok) changed();
   UNLOCK();
   return ok;
@@ -187,6 +196,7 @@ void lapsRestart(int car) {
   LOCK();
   cars[car].lastCrossUs = 0;
   cars[car].lastPass = LastPass::None;
+  cars[car].undoDriver = 0;
   changed();
   UNLOCK();
 }

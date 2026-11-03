@@ -29,6 +29,7 @@ class RaceClock {
   bool heatLaps(int laps);               // the current heat's driver has `laps` counted laps;
                                          // true when that ends the heat (next driver up or all done)
   void skipHeat() { if (race.heat < race.nHeats) race.heat++; }
+  void backHeat() { if (race.heat > 0) race.heat--; }   // the pass that ended a heat was undone
 
  private:
   RaceInfo race = { RaceState::Off, 0, 0, 0, {}, 0, 0 };

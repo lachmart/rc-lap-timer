@@ -162,6 +162,9 @@ crossing, so there is one untimed lap to hand over the transmitter. Fastest tota
 During heats the race card shows the driver on the track with the running lap and heat total to the
 millisecond, last/best lap, the split against the fastest heat so far after the same number of laps, how
 many laps are left, and who is next; on the final lap the next driver is told to get ready (also by voice).
+**↶ Remove last time** on the race card (one car) undoes the last pass, e.g. a false trigger: the lap
+continues from the pass before. If that pass ended a heat, the handover is undone too and the car is back
+with the previous driver.
 
 ### ZRound
 

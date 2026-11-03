@@ -339,6 +339,16 @@ function renderIr(l) {
 }
 
 // Band around idle where nothing triggers; the green marker leaving it = beam broken.
+// Away from the suggestion, but how bad is it? Same limits as beamSuggestDelta() in src/beam.cpp:
+// above 2·noise+50 noise can't trigger, below 0.7·depth a pass like the last one clears it with margin.
+function tuneAdvice(delta, l) {
+  const lo = 2 * l.noise + 50, hi = Math.round(l.peak * 0.7);
+  if (delta >= l.peak) return `Sensitivity ${delta} misses passes like the last one (depth ${l.peak}). Use ${l.suggest}.`;
+  if (delta > hi) return `Sensitivity ${delta} works, but a shallower (faster) pass could be missed. ${l.suggest} is safer.`;
+  if (delta < lo) return `Sensitivity ${delta} is close to the noise (±${l.noise}): false triggers are likely. Use ${l.suggest}.`;
+  return `Sensitivity ${delta} works. ${l.suggest} would leave more margin on both sides.`;
+}
+
 function renderTuning(l) {
   if (!S) return;
   const lo = Math.max(0, l.base - S.delta), hi = Math.min(4095, l.base + S.delta);
@@ -354,7 +364,7 @@ function renderTuning(l) {
   $('tuneHint').textContent =
       l.suggest < 0 ? 'A pass barely differs from the noise. Aim the laser better, shade the LDR tube from the sun, or move the gate.'
     : fine ? `Sensitivity ${S.delta} is fine.`
-    : l.suggest > 0 ? `Sensitivity ${S.delta} is ${S.delta < l.suggest ? 'too sensitive (false triggers)' : 'too dull (missed passes)'} for this signal.`
+    : l.suggest > 0 ? tuneAdvice(S.delta, l)
     : 'Drive (or wave a hand) through the beam once to measure how deep a pass goes.';
   $('useSuggest').hidden = !(l.suggest > 0 && !fine);
 }

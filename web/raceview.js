@@ -21,6 +21,7 @@ function renderRace() {
   if (!racing()) return null;
   const r = Race.standings(S, serverNow());
   $('standLast').textContent = r.heats ? 'Total' : 'Last';
+  renderRaceUndo();
   if (r.heats) return renderHeats(r);
   $('heatNow').hidden = $('hnNext').hidden = true;
   const lapsRace = S.race.laps > 0;
@@ -43,6 +44,20 @@ function renderRace() {
     : r.rows.some(x => !x.started) ? 'Each car\'s first crossing starts its timing.' : '';
   $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
   return r;
+}
+
+// One car: undo the last pass from the race card. It names what it removes: the last measured lap
+// (also when that lap ended a heat and the car was handed over), or the start pass.
+function renderRaceUndo() {
+  const car0 = carBySlot(0);
+  $('raceUndo').hidden = multi();
+  if (multi() || !car0) return;
+  const last = countedLaps(0).pop();
+  const t0 = carCur(0);
+  const lapPass = last && (!car0.running || (t0 !== null && Math.abs(serverNow() - t0 - last[L.END]) < 100));
+  $('raceUndo').disabled = !car0.canUndo;
+  $('raceUndo').textContent = !car0.canUndo ? '↶ Undo last pass'
+    : lapPass ? `↶ Remove last time ${fmt(last[L.MS])}` : '↶ Undo start pass';
 }
 
 // Heats: one car, the drivers in turn. The card shows who drives (live lap and total to the ms),
@@ -71,7 +86,8 @@ function renderHeats(r) {
     $('hnSplit').className = r.splitMs === undefined ? '' : r.splitMs <= 0 ? 'ahead' : 'behind';
     const left = N - cur.laps;
     const final = cur.started && left === 1;
-    $('hnMsg').textContent = !cur.started ? 'Take the transmitter – the time starts at the next crossing'
+    $('hnMsg').textContent = !cur.started ? (S.race.heat ? 'Take the transmitter – the time starts at the next crossing'
+      : 'The time starts at the first crossing')
       : final ? 'FINAL LAP' : `${left} laps to go`;
     $('hnMsg').className = 'hn-msg' + (final ? ' final' : '');
   }
@@ -282,6 +298,7 @@ function raceViewInit() {
       ? `Start heats: ${order.map(driverName).join(', ')}, ${n} lap${n > 1 ? 's' : ''} each? The current session is cleared.`
       : `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
   };
+  $('raceUndo').onclick = () => api('undo', { car: 0 });
   $('raceStop').onclick = () => {
     const done = $('raceStop').textContent === 'Back to training';
     api('race/stop', {}, done ? null : 'Stop the race? The laps stay.');

@@ -16,6 +16,7 @@ int            carsSlotFor(uint16_t tx);            // known car, or learn a new
 int            carsKnownBlink(uint16_t* out, int max);   // saved blink transponders, for the decoder
 bool           carsRename(int slot, const String& name);
 bool           carsRemove(int slot);                // its laps stay in the session
-bool           carsSetDriver(int slot, uint8_t driver);  // 0 = nobody; a driver drives one car at a time
+bool           carsSetDriver(int slot, uint8_t driver, bool handOver = false);  // 0 = nobody; a driver drives
+                                                    // one car at a time; handOver: see lapsSetDriver()
 void           carsDriverAdded(uint8_t driver);     // the first driver takes the beam-only car
 void           carsDriverRemoved(uint8_t driver);
