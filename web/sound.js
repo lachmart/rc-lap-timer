@@ -33,10 +33,8 @@ function setVoice(on, greet) {
   voiceOn = on;
   setToggle($('voice'), on, 'Voice');
   prefs.set('voice', on);
-  if (on && greet) {
-    speechSynthesis.cancel();
-    say('Voice on', 'now');
-  }
+  if (!on) speechSynthesis.cancel();
+  if (on && greet) say('Voice on');                    // inside the tap: unlocks speech on phones
 }
 
 function tone(freq, secs) {
@@ -54,24 +52,42 @@ function beep(best) {
 }
 
 // A new announcement interrupts the previous one; mode 'queue' waits for it instead (several
-// messages at once, e.g. a heat result and the next driver). Phone browsers (iOS Safari above all)
-// drop an utterance spoken in the same moment as cancel(), so cancel only when something is being
-// said and speak a moment later; 'now' speaks at once, inside the tap (needed to unlock speech).
+// messages at once, e.g. a heat result and the next driver). Browsers drop an utterance spoken in
+// the same moment as cancel() (iOS Safari), so cancel only when something is being said and speak
+// a moment later, in order.
 let delayed = null;     // utterances waiting out the moment after cancel(), in order
+const talking = new Set();   // utterances until they end: Chrome stalls if one is garbage-collected early
+let checkT = null;
+
+function speak(u) {
+  talking.add(u);
+  u.onstart = () => setVoiceStuck(false);
+  u.onend = u.onerror = () => talking.delete(u);
+  speechSynthesis.resume();                            // Chrome can sit paused after the tab was hidden
+  speechSynthesis.speak(u);
+  // Accepted but never started: the browser's speech is stuck (seen in Chrome on macOS); say so on the switch
+  clearTimeout(checkT);
+  checkT = setTimeout(() => { if (talking.has(u) && voiceOn) setVoiceStuck(true); }, 4000);
+}
+
+function setVoiceStuck(stuck) {
+  $('voice').classList.toggle('stuck', stuck);
+  $('voice').title = stuck ? 'This browser accepts speech but doesn\'t play it. Restart the browser (Chrome on a Mac: quit with ⌘Q).'
+    : 'Read out lap times';
+}
 
 function say(text, mode = '') {
   if (!voiceOn) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'en-US';
-  if (mode === 'now') { speechSynthesis.speak(u); return; }
   if (delayed) {                                       // an interruption is under way: join it
     if (mode === 'queue') delayed.push(u); else delayed.splice(0, delayed.length, u);
     return;
   }
-  if (mode === 'queue' || !(speechSynthesis.speaking || speechSynthesis.pending)) { speechSynthesis.speak(u); return; }
+  if (mode === 'queue' || !(speechSynthesis.speaking || speechSynthesis.pending)) { speak(u); return; }
   speechSynthesis.cancel();
   delayed = [u];
-  setTimeout(() => { const list = delayed; delayed = null; for (const x of list) speechSynthesis.speak(x); }, 60);
+  setTimeout(() => { const list = delayed; delayed = null; for (const x of list) speak(x); }, 60);
 }
 
 function announce(lap, kind) {
@@ -89,9 +105,8 @@ function soundInit() {
   $('voice').onclick = () => setVoice(!voiceOn, true);
   setBeep(prefs.get('beep'));
   setVoice(prefs.get('voice'), false);
-  document.addEventListener('pointerdown', e => {
+  document.addEventListener('pointerdown', () => {
     if (beepOn) unlockAudio();
-    // unlock speech with a silent utterance, unless this tap is the switch itself (it speaks)
-    if (voiceOn && e.target !== $('voice')) speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
+    if (voiceOn) speechSynthesis.speak(new SpeechSynthesisUtterance(''));   // unlocks speech, says nothing
   }, { once: true });
 }
