@@ -43,6 +43,7 @@ function renderRace() {
   $('raceHint').textContent = r.phase === 'countdown' ? 'Crossings before "go" are ignored.'
     : r.rows.some(x => !x.started) ? 'Each car\'s first crossing starts its timing.' : '';
   $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
+  $('raceAgain').hidden = !r.allIn;
   return r;
 }
 
@@ -106,6 +107,7 @@ function renderHeats(r) {
   $('standings').innerHTML = counting ? '' : standingsRows(r);
   $('raceHint').textContent = counting ? 'Crossings before "go" are ignored. Each driver\'s time starts at a crossing.' : '';
   $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
+  $('raceAgain').hidden = !r.allIn;
   lastHeats = r;
   raceFrame();
   return r;
@@ -299,6 +301,12 @@ function raceViewInit() {
       : `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
   };
   $('raceUndo').onclick = () => api('undo', { car: 0 });
+  $('raceAgain').onclick = () => {                    // the same race: length and heat order
+    const params = { laps: S.race.laps, minutes: S.race.minutes };
+    if (S.race.order.length) params.order = S.race.order.join(',');
+    unlockAudio();
+    api('race/start', params, 'Start the same race again? These results are cleared.');
+  };
   $('raceStop').onclick = () => {
     const done = $('raceStop').textContent === 'Back to training';
     api('race/stop', {}, done ? null : 'Stop the race? The laps stay.');
