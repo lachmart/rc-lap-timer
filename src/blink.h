@@ -1,6 +1,6 @@
 // "Blink" transponders: the cheapest possible car id, no microcontroller. An NE556 (dual 555)
 // makes 38 kHz bursts for the IR receiver and switches them on and off at a car-specific rate,
-// e.g. 320, 390, 465 Hz. The rate is the id. See tools/transponder/README.md.
+// e.g. 320, 390, 465 Hz. The rate is the id.
 //
 // No hardware dependencies, unit-tested on the host.
 #pragma once

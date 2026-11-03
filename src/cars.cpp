@@ -3,6 +3,7 @@
 #include "config.h"
 #include "drivers.h"
 #include "laps.h"
+#include "nec.h"
 
 static Preferences prefs;
 static CarInfo     cars[MAX_CARS];
@@ -63,7 +64,7 @@ int carsSlotFor(uint16_t tx) {
 
 int carsKnownBlink(uint16_t* out, int max) {
   int n = 0;
-  for (int s = 1; s < MAX_CARS && n < max; s++) if (cars[s].tx && cars[s].tx < 0x1000) out[n++] = cars[s].tx;
+  for (int s = 1; s < MAX_CARS && n < max; s++) if (cars[s].tx && cars[s].tx < NEC_ID_MIN) out[n++] = cars[s].tx;
   return n;
 }
 
