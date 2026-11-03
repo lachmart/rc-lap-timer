@@ -13,40 +13,67 @@
   <h1>🏁 RC Lap Timer <span id="conn"><span class="dot" id="dot"></span><span id="ctxt">connecting</span></span></h1>
 
   <div class="card" id="curCard">
-    <div class="lbl" id="state">Waiting for first pass</div>
+    <div class="lbl" id="state">Waiting for start pass</div>
     <div class="big" id="cur">--.---</div>
+    <div class="row">
+      <button id="undo" disabled title="A false trigger split the lap: remove that pass, the lap continues">↶ Undo pass</button>
+      <button id="restart" title="Drop the lap in progress, the next pass starts timing">⟲ Restart lap</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Driving now</div>
+    <div class="chips" id="chips"></div>
+    <details id="editDrivers"><summary>Edit drivers</summary>
+      <ul class="dlist" id="dlist"></ul>
+      <form class="add" id="addForm">
+        <input id="newName" maxlength="16" placeholder="Name" autocomplete="off" enterkeyhint="done">
+        <button>Add</button>
+      </form>
+      <p class="hint" id="dmsg">Switching driver drops the lap in progress, the next pass starts the new driver's lap.</p>
+    </details>
   </div>
 
   <div class="row">
     <div class="card"><div class="lbl">Last</div><div class="mid" id="last">--</div><div class="lbl" id="lastd">&nbsp;</div></div>
-    <div class="card"><div class="lbl">Best</div><div class="mid best" id="best">--</div><div class="lbl" id="avg">&nbsp;</div></div>
+    <div class="card"><div class="lbl">Best</div><div class="mid best" id="best">--</div><div class="lbl" id="bestd">&nbsp;</div></div>
+  </div>
+
+  <div class="card" id="boardCard" hidden>
+    <div class="lbl">Leaderboard</div>
+    <table class="board">
+      <thead><tr><th></th><th>Driver</th><th>Best</th><th>Gap</th><th>Laps</th><th>Avg</th></tr></thead>
+      <tbody id="board"></tbody>
+    </table>
   </div>
 
   <div class="card">
-    <div class="lbl" style="margin-bottom:6px">Laps</div>
+    <div class="lbl">Laps</div>
     <ol id="laps"></ol>
+    <p class="hint" id="noLaps">No laps yet.</p>
   </div>
 
-  <div class="row" style="margin-bottom:12px">
-    <button class="r" onclick="act('reset','Delete all laps?')">New session</button>
-    <button id="snd" onclick="toggleSound()">🔇 Sound</button>
+  <div class="row tools">
+    <button class="r" id="reset">New session</button>
+    <button id="snd">🔇 Beep</button>
+    <button id="voice">🔇 Voice</button>
   </div>
 
   <div class="card"><details><summary>Sensor</summary>
     <p class="lbl">ADC value <b id="raw">0</b> · idle <b id="base">0</b> · beam <b id="beam">?</b></p>
-    <div class="bar"><i id="mb" style="background:var(--mut)"></i><i id="mr" style="background:var(--ok)"></i></div>
+    <div class="bar"><i id="mb"></i><i id="mr"></i></div>
     <label>Min. lap time (s) <input id="minLap" type="number" step="0.1" min="0.3"></label>
     <label>Sensitivity, ADC deviation <input id="delta" type="number" step="50" min="50" max="4000"></label>
-    <div class="row"><button onclick="save()">Save</button><button onclick="act('calibrate')">Calibrate idle</button></div>
-    <p class="hint">Calibrate with a clear beam aimed at the sensor. Discarded passes: <b id="ign">0</b>.</p>
+    <div class="row"><button id="save">Save</button><button id="calibrate">Calibrate idle</button></div>
+    <p class="hint">Calibrate with a clear beam aimed at the sensor. The blue LED on the board lights while the beam is broken. Discarded passes (shorter than min. lap time): <b id="ign">0</b>.</p>
   </details></div>
 
   <div class="card"><details><summary>Wi-Fi</summary>
     <p class="hint" id="wstat"></p>
     <label>Home network <input id="ssid" autocomplete="off"></label>
     <label>Password <input id="pass" type="password" autocomplete="off"></label>
-    <div class="row"><button onclick="wifi(false)">Save and restart</button><button onclick="wifi(true)">Forget</button></div>
-    <p class="hint">The RC_Lap_Timer network always runs. When a home network is set and in range, the timer is also at http://laptimer.local, so the phone doesn't have to switch Wi-Fi and keeps its internet.</p>
+    <div class="row"><button id="wifiSave">Save and restart</button><button id="wifiForget">Forget</button></div>
+    <p class="hint">The RC_Lap_Timer network always runs. With a home network set, the timer joins it in the background and is also at http://laptimer.local, so the phone can stay on home Wi-Fi with internet. Out of range, it retries every 30 s while no phone is on RC_Lap_Timer. Tip: a phone hotspot works as the "home network" at the track.</p>
   </details></div>
 </body>
 </html>

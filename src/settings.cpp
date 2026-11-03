@@ -22,7 +22,6 @@ void settingsSaveTiming(long minLapMs, long delta) {
 
 void settingsSaveWifi(const String& ssid, const String& pass) {
   String s = ssid;
-  s.replace("\"", ""); s.replace("\\", "");          // so it can't break the state JSON
   s.trim();
   settings.ssid = s;
   settings.pass = pass;

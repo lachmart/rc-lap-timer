@@ -1,66 +1,235 @@
 #include "laps.h"
+
+#ifdef ARDUINO
 #include <Arduino.h>
-#include "esp_timer.h"
-
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+#define LOCK()   portENTER_CRITICAL(&mux)
+#define UNLOCK() portEXIT_CRITICAL(&mux)
+#else                                                 // host unit tests, single-threaded
+#define LOCK()
+#define UNLOCK()
+#endif
 
-static int64_t  lastCrossUs = 0;     // 0 = not started yet
-static uint32_t laps[MAX_LAPS];      // ring buffer
-static int      lapCount = 0;
-static uint32_t bestMs   = 0;
-static uint32_t ignored  = 0;
+enum class LastPass : uint8_t { None, Start, Lap };   // what the last pass did, for undo
+
+static int64_t     lastCrossUs = 0;   // 0 = waiting for the start pass
+static int64_t     prevCrossUs = 0;   // lastCrossUs before the last pass, for undo
+static LastPass    lastPass    = LastPass::None;
+static Lap         laps[MAX_LAPS];    // ring buffer
+static int         lapCount    = 0;
+static int         floorKept   = 0;   // laps below this number-1 are no longer in the ring (see popAt)
+static uint32_t    ignored     = 0;
+static uint8_t     driver      = 0;
+static DriverStats stats[MAX_STATS];
+static int         nStats      = 0;
 static volatile uint32_t revision = 0;
 
+static void changed() { revision = revision + 1; }    // ++ on volatile is deprecated in C++20
+
+static DriverStats* statsFor(uint8_t id, bool create) {
+  for (int i = 0; i < nStats; i++) if (stats[i].id == id) return &stats[i];
+  if (!create || nStats >= MAX_STATS) return nullptr;
+  stats[nStats] = { id, 0, 0, 0 };
+  return &stats[nStats++];
+}
+
+// Index (0-based lap number) of the oldest lap still in the ring.
+static int oldestKept() {
+  int byRing = lapCount > MAX_LAPS ? lapCount - MAX_LAPS : 0;
+  return byRing > floorKept ? byRing : floorKept;
+}
+
+static Lap& lapAt(int index) { return laps[index % MAX_LAPS]; }
+
+// Remove the lap at index from the ring, later laps move down by one.
+// When the ring is full, the slot before the oldest lap was already overwritten,
+// so the window of kept laps must not grow backwards: floorKept pins it.
+static void popAt(int index) {
+  floorKept = oldestKept();
+  for (int i = index; i < lapCount - 1; i++) lapAt(i) = lapAt(i + 1);
+  lapCount--;
+}
+
+// Best lap of a driver from the laps still in memory (older laps have rotated out of the ring).
+static void recomputeBest(DriverStats& s) {
+  s.bestMs = 0;
+  for (int i = oldestKept(); i < lapCount; i++) {
+    const Lap& l = lapAt(i);
+    if (!l.deleted && l.driver == s.id && (s.bestMs == 0 || l.ms < s.bestMs)) s.bestMs = l.ms;
+  }
+}
+
+static void addToStats(const Lap& l) {
+  if (DriverStats* s = statsFor(l.driver, true)) {
+    s->count++;
+    s->totalMs += l.ms;
+    if (s->bestMs == 0 || l.ms < s->bestMs) s->bestMs = l.ms;
+  }
+}
+
+// Call after the lap is already marked deleted or popped off the ring.
+static void removeFromStats(const Lap& l) {
+  DriverStats* s = statsFor(l.driver, false);
+  if (!s) return;
+  s->count--;
+  s->totalMs -= l.ms;
+  if (s->bestMs == l.ms) recomputeBest(*s);
+}
+
 void lapsCrossing(int64_t nowUs, uint32_t minLapMs) {
-  portENTER_CRITICAL(&mux);
+  LOCK();
   if (lastCrossUs == 0) {
-    lastCrossUs = nowUs;                              // the first pass only starts timing
+    lastCrossUs = nowUs;                              // the start pass only starts timing
+    prevCrossUs = 0;
+    lastPass    = LastPass::Start;
   } else {
     int64_t diffUs = nowUs - lastCrossUs;
     if (diffUs >= (int64_t)minLapMs * 1000) {
       uint32_t ms = (uint32_t)((diffUs + 500) / 1000);
-      laps[lapCount % MAX_LAPS] = ms;
+      lapAt(lapCount) = { nowUs, ms, driver, false };
       lapCount++;
-      if (bestMs == 0 || ms < bestMs) bestMs = ms;
+      addToStats(lapAt(lapCount - 1));
+      prevCrossUs = lastCrossUs;
       lastCrossUs = nowUs;
+      lastPass    = LastPass::Lap;
     } else {
       ignored++;
     }
   }
-  revision = revision + 1;                          // ++ on volatile is deprecated in C++20
-  portEXIT_CRITICAL(&mux);
+  changed();
+  UNLOCK();
 }
 
 void lapsReset() {
-  portENTER_CRITICAL(&mux);
-  lastCrossUs = 0; lapCount = 0; bestMs = 0; ignored = 0;
-  revision = revision + 1;                          // ++ on volatile is deprecated in C++20
-  portEXIT_CRITICAL(&mux);
+  LOCK();
+  lastCrossUs = 0; prevCrossUs = 0; lastPass = LastPass::None;
+  lapCount = 0; floorKept = 0; ignored = 0; nStats = 0;
+  changed();
+  UNLOCK();
 }
 
-static long sinceMs(int64_t last) {
-  return last ? (long)((esp_timer_get_time() - last) / 1000) : 0;
+void lapsSetDriver(uint8_t id) {
+  LOCK();
+  if (id != driver) {
+    driver = id;
+    lastCrossUs = 0;                                  // the lap in progress would mix two drivers
+    lastPass = LastPass::None;
+    changed();
+  }
+  UNLOCK();
 }
 
-void lapsSnapshot(LapSnapshot& out) {
-  portENTER_CRITICAL(&mux);
+void lapsForgetDriver(uint8_t id) {
+  LOCK();
+  for (int i = 0; i < nStats; i++) {
+    if (stats[i].id == id) { stats[i] = stats[--nStats]; break; }
+  }
+  changed();
+  UNLOCK();
+}
+
+bool lapsUndo() {
+  LOCK();
+  bool ok = true;
+  if (lastPass == LastPass::Start) {
+    lastCrossUs = 0;
+  } else if (lastPass == LastPass::Lap) {
+    Lap l = lapAt(lapCount - 1);
+    popAt(lapCount - 1);
+    if (!l.deleted) removeFromStats(l);
+    lastCrossUs = prevCrossUs;                        // the current lap continues from the real previous pass
+  } else {
+    ok = false;
+  }
+  lastPass = LastPass::None;                          // only one level of undo
+  if (ok) changed();
+  UNLOCK();
+  return ok;
+}
+
+void lapsRestart() {
+  LOCK();
+  lastCrossUs = 0;
+  lastPass = LastPass::None;
+  changed();
+  UNLOCK();
+}
+
+bool lapsDelete(int number) {
+  LOCK();
+  bool ok = number >= 1 && number <= lapCount && number > oldestKept();
+  if (ok) {
+    Lap& l = lapAt(number - 1);
+    ok = !l.deleted;
+    if (ok) {
+      l.deleted = true;
+      removeFromStats(l);
+      if (number == lapCount && lastPass == LastPass::Lap) lastPass = LastPass::None;
+      changed();
+    }
+  }
+  UNLOCK();
+  return ok;
+}
+
+bool lapsContinues(const Lap& prev, const Lap& next) {
+  int64_t gap = next.endUs - (int64_t)next.ms * 1000 - prev.endUs;   // ms is rounded, so ±0.5 ms
+  return gap >= -1000 && gap <= 1000;
+}
+
+bool lapsJoin(int number) {
+  LOCK();
+  int i = number - 1;                                 // index of the first piece
+  bool ok = number >= 1 && number < lapCount && i >= oldestKept();
+  if (ok) {
+    Lap a = lapAt(i), b = lapAt(i + 1);
+    ok = !a.deleted && !b.deleted && a.driver == b.driver && lapsContinues(a, b);
+    if (ok) {
+      lapAt(i).deleted = true;                        // out of the best-lap search while stats update
+      removeFromStats(a);
+      popAt(i + 1);
+      removeFromStats(b);
+      lapAt(i) = { b.endUs, a.ms + b.ms, a.driver, false };
+      addToStats(lapAt(i));
+      if (lastPass == LastPass::Lap && i + 1 == lapCount) prevCrossUs = a.endUs - (int64_t)a.ms * 1000;
+      changed();
+    }
+  }
+  UNLOCK();
+  return ok;
+}
+
+static long sinceMs(int64_t last, int64_t nowUs) {
+  return last ? (long)((nowUs - last) / 1000) : 0;
+}
+
+void lapsSnapshot(LapSnapshot& out, int64_t nowUs) {
+  LOCK();
   int64_t last = lastCrossUs;
+  out.driver  = driver;
+  out.canUndo = lastPass != LastPass::None;
   out.count   = lapCount;
-  out.bestMs  = bestMs;
   out.ignored = ignored;
-  out.n = lapCount < MAX_LAPS ? lapCount : MAX_LAPS;
-  for (int i = 0; i < out.n; i++) out.laps[i] = laps[(lapCount - out.n + i) % MAX_LAPS];
-  portEXIT_CRITICAL(&mux);
+  out.n = lapCount - oldestKept();
+  for (int i = 0; i < out.n; i++) out.laps[i] = lapAt(oldestKept() + i);
+  out.nStats = nStats;
+  out.bestMs = 0;
+  for (int i = 0; i < nStats; i++) {
+    out.stats[i] = stats[i];
+    uint32_t b = stats[i].bestMs;
+    if (b && (out.bestMs == 0 || b < out.bestMs)) out.bestMs = b;
+  }
+  UNLOCK();
 
   out.running = last != 0;
-  out.curMs   = sinceMs(last);
+  out.curMs   = sinceMs(last, nowUs);
 }
 
-long lapsCurrentMs() {
-  portENTER_CRITICAL(&mux);
+long lapsCurrentMs(int64_t nowUs) {
+  LOCK();
   int64_t last = lastCrossUs;
-  portEXIT_CRITICAL(&mux);
-  return sinceMs(last);
+  UNLOCK();
+  return sinceMs(last, nowUs);
 }
 
 uint32_t lapsRevision() { return revision; }

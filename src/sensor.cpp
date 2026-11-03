@@ -16,6 +16,11 @@ static int readAvg(int samples) {
   return sum / samples;
 }
 
+static void setBroken(bool& broken, bool value) {
+  broken = value;
+  digitalWrite(LED_PIN, value ? HIGH : LOW);          // LED shows the beam state, handy for aiming
+}
+
 // Separate task on core 1, so neither the web nor Wi-Fi delays the measurement.
 static void sensorTask(void*) {
   float base   = 0;
@@ -24,7 +29,7 @@ static void sensorTask(void*) {
   for (;;) {
     if (calibrateRq) {
       base = readAvg(64);                             // idle value with the beam on the sensor
-      broken = false;
+      setBroken(broken, false);
       calibrateRq = false;
       Serial.printf("Calibration: idle = %d\n", (int)base);
     }
@@ -36,13 +41,13 @@ static void sensorTask(void*) {
 
     if (!broken) {
       if (dev > delta) {
-        broken = true;
+        setBroken(broken, true);
         lapsCrossing(now, settings.minLapMs);
       } else {
         base += (raw - base) * 0.0005f;               // slowly track ambient light (~2 s)
       }
     } else if (dev < delta / 2) {                     // hysteresis, beam is clear again
-      broken = false;
+      setBroken(broken, false);
     }
 
     liveRaw = raw; liveBase = (int)base; liveBroken = broken;
@@ -51,6 +56,8 @@ static void sensorTask(void*) {
 }
 
 void sensorBegin() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
   analogReadResolution(12);
   analogSetPinAttenuation(SENSOR_PIN, ADC_11db);      // full 0–3.3 V range
   xTaskCreatePinnedToCore(sensorTask, "sensor", 4096, nullptr, 5, nullptr, 1);
