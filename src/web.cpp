@@ -91,6 +91,9 @@ static String buildLive() {
   j += ",\"base\":";   j += l.base;
   j += ",\"broken\":"; j += l.broken ? "true" : "false";
   j += ",\"cur\":";    j += lapsCurrentMs(esp_timer_get_time());
+  j += ",\"noise\":";  j += l.noise;
+  j += ",\"peak\":";   j += l.peak;
+  j += ",\"suggest\":"; j += l.suggest;
   j += ",\"rssi\":";   j += wlanRssi();
   j += '}';
   return j;
@@ -199,6 +202,7 @@ void webBegin() {
 void webLoop() {
   static uint32_t    sentRevision = 0;
   static const char* sentSta      = "";
+  static const char* sentStaErr   = "";
   static uint32_t    lastLive     = 0;
 
   server.handleClient();
@@ -206,9 +210,11 @@ void webLoop() {
 
   uint32_t    rev = lapsRevision();
   const char* sta = wlanStaState();
-  if (rev != sentRevision || sta != sentSta || stateDirty) {   // a new lap goes out immediately
+  const char* err = wlanStaError();                   // string literals, comparing pointers is enough
+  if (rev != sentRevision || sta != sentSta || err != sentStaErr || stateDirty) {   // a new lap goes out immediately
     sentRevision = rev;
     sentSta      = sta;
+    sentStaErr   = err;
     stateDirty   = false;
     String s = buildState();
     ws.broadcastTXT(s);

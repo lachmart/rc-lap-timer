@@ -13,6 +13,8 @@ let beepOn = false, voiceOn = false, ac = null;
 let sock = null, pollT = null;
 let lastSsid = null;   // home network shown in the Wi-Fi form
 let rssi = 0;          // home Wi-Fi signal (dBm), 0 = not connected
+let suggested = 0;     // sensitivity suggested by the sensor
+let brokenSince = 0;   // performance.now() when the beam got broken, 0 = clear
 let openLap = 0;       // lap number whose actions are shown in the list
 
 // ---------------------------------------------------------------- helpers
@@ -37,18 +39,45 @@ async function api(path, params = {}, question = null) {
 // ---------------------------------------------------------------- sound, voice, vibration
 function setToggle(btn, on, label) { btn.textContent = (on ? '🔊 ' : '🔇 ') + label; }
 
-$('snd').onclick = () => {
-  beepOn = !beepOn;
-  setToggle($('snd'), beepOn, 'Beep');
-  if (beepOn && !ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+// Remembered per phone. Browser storage can be unavailable (private mode), then it just isn't kept.
+const prefs = {
+  get: k => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } },
+  set: (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (e) { /* not kept */ } },
 };
 
-$('voice').onclick = () => {
+function unlockAudio() {
+  try {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+  } catch (e) { /* no WebAudio */ }
+}
+
+function setBeep(on) {
+  beepOn = on;
+  setToggle($('snd'), on, 'Beep');
+  prefs.set('beep', on);
+  if (on) unlockAudio();
+}
+
+function setVoice(on, greet) {
   if (!('speechSynthesis' in window)) { $('voice').textContent = 'No voice'; return; }
-  voiceOn = !voiceOn;
-  setToggle($('voice'), voiceOn, 'Voice');
-  if (voiceOn) say('Voice on');                        // iOS only speaks after a tap, this unlocks it
-};
+  voiceOn = on;
+  setToggle($('voice'), on, 'Voice');
+  prefs.set('voice', on);
+  if (on && greet) say('Voice on');
+}
+
+$('snd').onclick   = () => setBeep(!beepOn);
+$('voice').onclick = () => setVoice(!voiceOn, true);
+
+// Browsers only allow sound after the user touched the page: restore the saved switches
+// and unlock audio and speech on the first tap anywhere.
+setBeep(prefs.get('beep'));
+setVoice(prefs.get('voice'), false);
+document.addEventListener('pointerdown', () => {
+  if (beepOn) unlockAudio();
+  if (voiceOn) speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+}, { once: true });
 
 function beep(best) {
   if (navigator.vibrate) navigator.vibrate(best ? [80, 60, 80] : 80);
@@ -84,10 +113,12 @@ function conn(state) {
 }
 
 function flash(isBest) {
-  const c = $('curCard');
-  c.className = 'card';
-  void c.offsetWidth;                                  // restart the animation
-  c.className = 'card flash' + (isBest ? ' b' : '');
+  for (const [id, base] of [['curCard', 'card'], ['bigView', 'bigview']]) {
+    const c = $(id);
+    c.className = base;
+    void c.offsetWidth;                                // restart the animation
+    c.className = base + ' flash' + (isBest ? ' b' : '');
+  }
 }
 
 // 'best' = best of the session, 'pb' = driver's personal best, '' = neither
@@ -241,6 +272,7 @@ function onState(s) {
   renderLaps();
   renderWifi();
   $('ign').textContent = s.ignored;
+  for (const id of ['last', 'lastd', 'best', 'bestd']) $('bv' + id[0].toUpperCase() + id.slice(1)).textContent = $(id).textContent;
 
   if (!cfgLoaded) {
     $('minLap').value = s.minLap / 1000;
@@ -261,20 +293,72 @@ function onLive(l) {
   $('mr').style.left = (l.raw / 40.95) + '%';          // ADC 0–4095 → 0–100 %
   $('mb').style.left = (l.base / 40.95) + '%';
   if (l.rssi !== rssi) { rssi = l.rssi || 0; renderBars(); }
+  renderTuning(l);
+  renderBeamWarning(l.broken);
+}
+
+// Band around idle where nothing triggers; the green marker leaving it = beam broken.
+function renderTuning(l) {
+  if (!S) return;
+  const lo = Math.max(0, l.base - S.delta), hi = Math.min(4095, l.base + S.delta);
+  $('band').style.left = (lo / 40.95) + '%';
+  $('band').style.width = ((hi - lo) / 40.95) + '%';
+
+  suggested = l.suggest;
+  // the suggestion moves a little with every pass; within ±20 % the current setting is fine
+  const fine = l.suggest > 0 && Math.abs(S.delta - l.suggest) <= l.suggest * 0.2;
+  $('noise').textContent = '±' + l.noise;
+  $('peak').textContent = l.peak || '–';
+  $('suggest').textContent = l.suggest > 0 ? l.suggest : l.suggest < 0 ? 'too weak' : '–';
+  $('tuneHint').textContent =
+      l.suggest < 0 ? 'A pass barely differs from the noise. Aim the laser better, shade the LDR tube from the sun, or move the gate.'
+    : fine ? `Sensitivity ${S.delta} is fine.`
+    : l.suggest > 0 ? `Sensitivity ${S.delta} is ${S.delta < l.suggest ? 'too sensitive (false triggers)' : 'too dull (missed passes)'} for this signal.`
+    : 'Drive (or wave a hand) through the beam once to measure how deep a pass goes.';
+  $('useSuggest').hidden = !(l.suggest > 0 && !fine);
+}
+
+// Beam broken for a long time: the laser got knocked off aim or something sits in the gate.
+// Nothing is counted until it clears, so say so loudly.
+function renderBeamWarning(broken) {
+  const now = performance.now();
+  if (!broken) brokenSince = 0;
+  else if (!brokenSince) brokenSince = now;
+  const secs = brokenSince ? Math.round((now - brokenSince) / 1000) : 0;
+  const blocked = secs >= 3;
+  const msg = `Beam blocked for ${secs} s, laps aren't counted. Check the laser aim or clear the gate.`;
+  for (const id of ['beamWarn', 'bvWarn']) {
+    $(id).hidden = !blocked;
+    if (blocked) $(id).textContent = msg;
+  }
+  $('ssum').textContent = blocked ? '· beam blocked' : '';
 }
 
 function tick() {
-  const who = S && driverName(S.driver);
-  const suffix = who ? ' · ' + who : '';
-  if (S && S.running) {
-    $('cur').textContent = fmt(cur + (performance.now() - at));
-    $('state').textContent = 'Lap ' + (S.count + 1) + suffix;
-  } else {
-    $('cur').textContent = '--.---';
-    $('state').textContent = 'Waiting for start pass' + suffix;
+  const who = S ? driverName(S.driver) : '';
+  const running = S && S.running;
+  const time = running ? fmt(cur + (performance.now() - at)) : '--.---';
+  const lap = running ? 'Lap ' + (S.count + 1) : 'Waiting for start pass';
+  $('cur').textContent = time;
+  $('state').textContent = lap + (who ? ' · ' + who : '');
+  if (!$('bigView').hidden) {
+    $('bvCur').textContent = time;
+    $('bvLap').textContent = lap;
+    $('bvDriver').textContent = who;
   }
   requestAnimationFrame(tick);
 }
+
+// ---------------------------------------------------------------- big view
+$('bigOpen').onclick = () => {
+  $('bigView').hidden = false;
+  const el = document.documentElement;                // real fullscreen where the browser allows it
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+};
+$('bigView').onclick = () => {
+  $('bigView').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+};
 
 // ---------------------------------------------------------------- connection
 // WebSocket with automatic reconnect, HTTP polling as fallback while it's down
@@ -301,6 +385,9 @@ $('undo').onclick    = () => api('undo');
 $('restart').onclick = () => api('restart');
 $('reset').onclick   = () => api('reset', {}, 'Start a new session? All laps and the leaderboard are cleared, drivers stay.');
 $('calibrate').onclick = () => api('calibrate');
+$('useSuggest').onclick = async () => {
+  if (suggested > 0 && await api('config', { minLap: S.minLap, delta: suggested })) cfgLoaded = false;
+};
 
 $('laps').onclick = e => {
   const { open, join, del } = e.target.dataset;

@@ -36,7 +36,8 @@ src/
   main.cpp         setup() / loop(), wires the modules together
   config.h         fixed constants (pins, AP name, limits, defaults)
   settings.*       user settings in flash (Preferences)
-  sensor.*         LDR sampling task, crossing detection, beam LED
+  sensor.*         LDR sampling task, beam LED
+  beam.*           beam break detection, noise / pass depth, suggested sensitivity (unit-tested)
   laps.*           laps, per-driver stats, corrections (no hardware deps, unit-tested)
   drivers.*        driver names in flash, who's driving
   wlan.*           Wi-Fi AP + captive portal, home Wi-Fi in the background, mDNS
@@ -45,7 +46,7 @@ web/
   index.html       the phone app
   style.css
   app.js
-test/test_laps/    unit tests for laps.cpp (run on the Mac)
+test/              unit tests for laps.cpp and beam.cpp (run on the Mac)
 tools/
   mock_server.py   fake timer for trying the app without the board
 ```
@@ -66,14 +67,14 @@ If it breaks off halfway, lower `upload_speed` in `platformio.ini` to 460800.
 ## Develop without the board
 
 ```
-pio test -e native                                  # unit tests of the lap logic
+pio test -e native                                  # unit tests of lap and beam logic
 python3 tools/mock_server.py --drivers Martin,Jana  # fake timer with a simulated car
 ```
 
 The mock serves `web/` straight from disk (edit, reload), fakes the whole API and WebSocket,
 and drives a simulated car with an occasional false trigger. Open `http://localhost:8080`,
 or on the phone the address it prints. `--manual` turns the car off; trigger passes with
-`curl -X POST localhost:8080/mock/cross`.
+`curl -X POST localhost:8080/mock/cross`. `POST /mock/block?on=1` holds the beam broken.
 
 ## Usage
 
@@ -106,12 +107,26 @@ Passes shorter than the minimum lap time (Sensor section) are discarded automati
 ### Sound and voice
 
 **Beep** plays a tone and vibrates on every lap (higher for a best). **Voice** reads the driver and time
-("Jana, 8.13, personal best"). On iPhone the switch must be tapped once after opening the page.
+("Jana, 8.13, personal best"). Both switches are remembered on each phone; browsers only allow sound
+after the first tap on the page.
 
-### Sensor
+### Big view
 
-The **Sensor** section shows the live ADC value (helps with aiming the laser), calibration,
-minimum lap time and sensitivity. Settings are saved to flash.
+**⛶** next to the connection dot opens a full-screen view with large digits (current lap, last,
+best, driver), readable from a distance with the phone propped up. Tap to close.
+
+### Sensor and tuning
+
+The **Sensor** section shows the live ADC value with the no-trigger band around idle (helps with
+aiming the laser), calibration, minimum lap time and sensitivity. Settings are saved to flash.
+
+To find the right sensitivity, drive (or wave a hand) through the beam once. The section then shows
+the **noise** (how much the signal wanders with a clear beam), the **pass depth** (how far a pass moves
+it) and a **suggested** sensitivity safely in between; **Use suggested sensitivity** applies it. "Too weak"
+means a pass barely differs from the noise: aim the laser better, shade the LDR from the sun.
+
+If the beam stays broken for more than 3 s (laser knocked off aim, something in the gate), a warning
+appears: no laps are counted until the beam is clear again.
 
 ### Home Wi-Fi (optional)
 
@@ -154,7 +169,7 @@ and reconnects the WebSocket. The dot in the top right shows the connection stat
 | POST | `/api/wifi?ssid=...&pass=...` | join a home network, applied without restart; no `pass` = keep the saved one; empty ssid = forget |
 | POST | `/api/wifi/scan` | start a network scan (400 while connecting) |
 | GET | `/api/wifi/scan` | `{"scanning":false,"networks":[{"ssid","rssi","open"}]}` |
-| WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` |
+| WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` (raw, base, broken, noise, peak, suggest, rssi, cur) |
 
 Failed actions (unknown lap, duplicate name, …) answer `400 {"ok":false}`.
 In the state, each lap is `[ms, driverId, deleted, continuesPrevious]`, oldest first.

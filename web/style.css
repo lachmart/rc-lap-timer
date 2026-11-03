@@ -7,6 +7,9 @@
 [hidden] { display: none !important }
 body { margin: auto; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif; padding: 16px; max-width: 520px }
 h1 { font-size: 18px; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center }
+.hdr { display: flex; align-items: center; gap: 8px }
+button.icon { background: none; padding: 2px 6px; font-size: 20px; line-height: 1; color: var(--mut) }
+.warn { background: #3a1d22; color: #ffb3bb; border-radius: 8px; padding: 8px 10px; font-size: 14px; margin: 0 0 10px }
 
 #conn { font-size: 12px; color: var(--mut); display: flex; gap: 6px; align-items: center }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--acc); display: inline-block }
@@ -69,8 +72,14 @@ li.acts .hint { flex-basis: 100%; margin: 0 }
 
 /* ADC value and idle marker */
 .bar { height: 10px; background: var(--line); border-radius: 5px; position: relative; margin: 8px 0 }
-.bar i { position: absolute; top: -3px; width: 3px; height: 16px; border-radius: 2px }
-#mb { background: var(--mut) }
+.bar i { position: absolute; top: -3px; width: 3px; height: 16px; border-radius: 2px; margin-left: -1px }
+#band { position: absolute; top: 0; bottom: 0; background: #3d4252; border-radius: 5px }
+.meter { display: flex; gap: 8px; margin: 10px 0 0 }
+.meter div { flex: 1; background: var(--bg); border-radius: 8px; padding: 6px 8px }
+.meter dt { color: var(--mut); font-size: 11px; text-transform: uppercase; letter-spacing: .04em }
+.meter dd { margin: 2px 0 0; font: 600 17px var(--mono) }
+#useSuggest { margin-top: 8px }
+#mb { background: var(--fg); opacity: .7 }
 #mr { background: var(--ok) }
 
 input { width: 140px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 16px }
@@ -98,3 +107,18 @@ button.wide { width: 100% }
 .bars i:nth-child(3) { height: 75% }
 .bars i:nth-child(4) { height: 100% }
 .bars i.on { background: var(--ok) }
+
+/* big view: a phone propped up at the track */
+.bigview { position: fixed; inset: 0; z-index: 10; background: #000; padding: 20px;
+           display: flex; flex-direction: column; justify-content: center; gap: 3vh; text-align: center; cursor: pointer }
+.bv-top { display: flex; justify-content: space-between; gap: 12px; color: var(--mut); font-size: clamp(18px, 4.5vw, 40px) }
+.bv-cur { font: 700 clamp(64px, 23vw, 34vh) var(--mono); line-height: 1; font-variant-numeric: tabular-nums }
+.bv-row { display: flex; justify-content: space-around }
+.bv-row .lbl { font-size: clamp(12px, 2.6vw, 22px) }
+.bv-mid { font: 700 clamp(32px, 11vw, 15vh) var(--mono); font-variant-numeric: tabular-nums }
+.bv-exit { color: #5a5e6b; font-size: 12px }
+.bigview .warn { font-size: clamp(14px, 3vw, 24px) }
+.bigview.flash { animation: flbv .6s }
+@keyframes flbv { from { background: #2f6b45 } to { background: #000 } }
+.bigview.flash.b { animation: flbvb .9s }
+@keyframes flbvb { from { background: #7a6516 } to { background: #000 } }

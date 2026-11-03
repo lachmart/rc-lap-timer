@@ -1,13 +1,17 @@
 #include "sensor.h"
 #include <Arduino.h>
 #include "esp_timer.h"
+#include "beam.h"
 #include "config.h"
 #include "laps.h"
 #include "settings.h"
 
+static Beam beam;                          // owned by the sensor task
 static volatile int  liveRaw     = 0;
 static volatile int  liveBase    = 0;
 static volatile bool liveBroken  = false;
+static volatile int  liveNoise   = 0;
+static volatile int  livePeak    = 0;
 static volatile bool calibrateRq = true;   // calibrate right after start
 
 static int readAvg(int samples) {
@@ -16,41 +20,27 @@ static int readAvg(int samples) {
   return sum / samples;
 }
 
-static void setBroken(bool& broken, bool value) {
-  broken = value;
-  digitalWrite(LED_PIN, value ? HIGH : LOW);          // LED shows the beam state, handy for aiming
-}
-
 // Separate task on core 1, so neither the web nor Wi-Fi delays the measurement.
 static void sensorTask(void*) {
-  float base   = 0;
-  bool  broken = false;
+  bool led = false;
 
   for (;;) {
     if (calibrateRq) {
-      base = readAvg(64);                             // idle value with the beam on the sensor
-      setBroken(broken, false);
+      beam.calibrate(readAvg(64));                    // idle value with the beam on the sensor
       calibrateRq = false;
-      Serial.printf("Calibration: idle = %d\n", (int)base);
+      Serial.printf("Calibration: idle = %d\n", beam.base());
     }
 
-    int     raw   = analogRead(SENSOR_PIN);
-    int64_t now   = esp_timer_get_time();
-    int     dev   = abs(raw - (int)base);             // works for either wiring polarity
-    int     delta = settings.delta;
+    int     raw = analogRead(SENSOR_PIN);
+    int64_t now = esp_timer_get_time();
+    if (beam.update(raw, settings.delta, (uint32_t)(now / 1000))) lapsCrossing(now, settings.minLapMs);
 
-    if (!broken) {
-      if (dev > delta) {
-        setBroken(broken, true);
-        lapsCrossing(now, settings.minLapMs);
-      } else {
-        base += (raw - base) * 0.0005f;               // slowly track ambient light (~2 s)
-      }
-    } else if (dev < delta / 2) {                     // hysteresis, beam is clear again
-      setBroken(broken, false);
+    if (beam.broken() != led) {                       // LED shows the beam state, handy for aiming
+      led = beam.broken();
+      digitalWrite(LED_PIN, led ? HIGH : LOW);
     }
-
-    liveRaw = raw; liveBase = (int)base; liveBroken = broken;
+    liveRaw = raw; liveBase = beam.base(); liveBroken = beam.broken();
+    liveNoise = beam.noise(); livePeak = beam.peak();
     vTaskDelay(1);                                    // ~1 kHz sampling
   }
 }
@@ -65,4 +55,7 @@ void sensorBegin() {
 
 void sensorCalibrate() { calibrateRq = true; }
 
-SensorLive sensorLive() { return { liveRaw, liveBase, liveBroken }; }
+SensorLive sensorLive() {
+  int noise = liveNoise, peak = livePeak;
+  return { liveRaw, liveBase, liveBroken, noise, peak, beamSuggestDelta(noise, peak) };
+}

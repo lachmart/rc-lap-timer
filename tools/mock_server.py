@@ -36,6 +36,17 @@ FAKE_NETWORKS = {                  # name -> (rssi dBm, open)
 }
 
 
+def suggest_delta(noise, peak):
+    """Same as beamSuggestDelta() in src/beam.cpp."""
+    if peak <= 0:
+        return 0
+    lo, hi = 2 * noise + 50, peak * 7 // 10
+    if lo > hi:
+        return -1
+    s = ((lo + hi) // 2 + 25) // 50 * 50
+    return min(max(s, 50), 4000)
+
+
 def now_us():
     return int(time.monotonic() * 1e6)
 
@@ -53,6 +64,7 @@ class Timer:
         self.driver = 0
         self.revision = 0
         self.raw, self.base, self.broken = 3000, 3000, False
+        self.noise, self.peak, self.blocked = 25, 0, False
         self.reset()
 
     def changed(self):
@@ -227,7 +239,10 @@ class Timer:
 
     def live(self):
         rssi = FAKE_NETWORKS.get(self.ssid, (0, False))[0] + random.randint(-2, 2) if self.sta == "connected" else 0
-        return {"t": "live", "raw": self.raw, "base": self.base, "broken": self.broken, "cur": self.cur_ms(), "rssi": rssi}
+        broken = self.broken or self.blocked
+        raw = 600 if self.blocked else self.raw
+        return {"t": "live", "raw": raw, "base": self.base, "broken": broken, "cur": self.cur_ms(),
+                "noise": self.noise, "peak": self.peak, "suggest": suggest_delta(self.noise, self.peak), "rssi": rssi}
 
     # ------------------------------------------------------------ wlan.cpp
     def wifi_apply(self, ssid, password):
@@ -271,9 +286,10 @@ def simulate():
     next_cross = time.monotonic() + 3
     while True:
         t = time.monotonic()
-        timer.raw = timer.base + random.randint(-25, 25)
-        if t >= next_cross:
+        timer.raw = timer.base + random.randint(-timer.noise, timer.noise)
+        if t >= next_cross and not timer.blocked:      # a blocked beam can't be broken again
             timer.crossing()
+            timer.peak = random.randint(2300, 2500)
             timer.broken, timer.raw = True, 600
             time.sleep(0.25)
             timer.broken = False
@@ -439,7 +455,9 @@ class Http(BaseHTTPRequestHandler):
         elif p == "/api/wifi/scan":
             self.result(timer.scan_start())
         elif p == "/mock/cross":
-            timer.crossing(); self.result(True)
+            timer.crossing(); timer.peak = 2400; self.result(True)
+        elif p == "/mock/block":                                # hold the beam broken: ?on=1 / ?on=0
+            timer.blocked = q.get("on") == "1"; self.result(True)
         else:
             self.send(404, "Not found", "text/plain")
 

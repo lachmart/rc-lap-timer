@@ -17,14 +17,15 @@ Hobby project. Communication, code comments, UI and commits in English.
   - `main.cpp` – `setup()`/`loop()` only, wires modules together
   - `config.h` – fixed constants (pins, AP name, limits, defaults)
   - `settings.*` – Preferences load/save, global `settings` struct
-  - `sensor.*` – sampling task + crossing detection + beam LED, calls `lapsCrossing()`
+  - `sensor.*` – sampling task (ADC, LED), feeds `Beam`, calls `lapsCrossing()`
+  - `beam.*` – `Beam` class: detection (deviation from idle, hysteresis delta/2, idle EMA), noise (decaying peak hold of clear-beam deviation, delayed 64 samples and 300 ms hold-off after a break so the slow LDR's ramps don't count), pass depth (peak of last break), `beamSuggestDelta()` (between 2·noise+50 and 0.7·depth, -1 = too weak). No hardware deps, unit-tested.
   - `laps.*` – session state: lap ring buffer, per-driver stats, undo/restart/delete/join. Behind `portMUX` on ESP32, no lock and no hardware deps on the host (time is passed in), so it's unit-tested. `lapsRevision()` change counter.
   - `drivers.*` – driver list (names in Preferences namespace `drivers`, ids assigned at runtime), selection; main loop only
   - `wlan.*` – AP, STA state machine, captive DNS, mDNS (not named `network.*`: on macOS' case-insensitive FS it would shadow the framework's `Network.h`)
   - `web.*` – WebServer, WebSocket, JSON building (with escaping), restart scheduling
 - `web/` – `index.html`, `style.css`, `app.js` as normal files. Embedded into the firmware by `board_build.embed_txtfiles`, accessed in `web.cpp` via `asm("_binary_web_<name>_start")` symbols and served at `/`, `/style.css`, `/app.js`. No LittleFS / uploadfs needed.
-- `test/test_laps/` – Unity tests for `laps.cpp`, env `native` builds only `laps.cpp` (`build_src_filter`).
-- `tools/mock_server.py` – stdlib-only Python fake of the firmware (HTTP 8080 + WS 81, simulated car with false triggers, `--manual`, `POST /mock/cross`). **Mirrors laps/drivers logic: keep it in sync when behaviour changes.**
+- `test/test_laps/`, `test/test_beam/` – Unity tests, env `native` builds only `laps.cpp` and `beam.cpp` (`build_src_filter`). Run `pio test -e native` (plain `pio test` runs nothing, `esp32dev` has `test_ignore = *`).
+- `tools/mock_server.py` – stdlib-only Python fake of the firmware (HTTP 8080 + WS 81, simulated car with false triggers, `--manual`, `POST /mock/cross`, `POST /mock/block?on=1|0`, fake Wi-Fi networks; password `wrong` fails). **Mirrors laps/drivers logic: keep it in sync when behaviour changes.**
 - `platformio.ini` – `default_envs = esp32dev`; envs `esp32dev` and `native`
 - `README.md` – wiring, uploading, usage, API
 - Arduino IDE is not supported (PlatformIO only).
@@ -39,7 +40,7 @@ Hobby project. Communication, code comments, UI and commits in English.
 ## Firmware architecture
 
 - **Measurement** runs in a separate FreeRTOS task (`sensorTask`, core 1, ~1 kHz via `vTaskDelay(1)`), timestamps from `esp_timer_get_time()` (µs).
-- Detection = deviation from the idle value (`|raw - base| > delta`), so wiring polarity doesn't matter. Hysteresis `delta/2`. The idle value is calibrated at startup and on request; outside of a pass it slowly tracks ambient light (EMA ~2 s).
+- Detection (in `Beam`) = deviation from the idle value (`|raw - base| > delta`), so wiring polarity doesn't matter. Hysteresis `delta/2`. The idle value is calibrated at startup and on request; outside of a pass it slowly tracks ambient light (EMA ~2 s).
 - The first pass only starts timing; every subsequent pass records a lap for the selected driver. Passes shorter than `minLapMs` are discarded (counter `ignored`).
 - **Session/laps**: ring of `MAX_LAPS` laps (`{endUs, ms, driver, deleted}`), stats per driver kept incrementally so they survive ring wrap. Overall best = min of driver bests. Corrections:
   - undo (one level): reverts the last pass; after a lap pass `lastCrossUs = prevCrossUs`, so the lap continues from the real previous pass
@@ -52,7 +53,7 @@ Hobby project. Communication, code comments, UI and commits in English.
 - **Communication**: WebSocket on port 81. Messages `{"t":"state",...}` (on connect and any change) and `{"t":"live",...}` (raw ADC, base, broken, cur; every 200 ms). When the WS drops, the page switches to HTTP polling of `/api/state` every 1 s and keeps reconnecting the WS. Page takes `?ws=<port>` for the mock.
 - HTTP API: see README. Failed actions return 400.
 - Settings in `Preferences` namespace `laptimer` (`minLap`, `delta`, `ssid`, `pass`); drivers in namespace `drivers` (`names`, newline-separated). Names: control chars stripped, ≤ 32 bytes UTF-8 (UI `maxlength=16`), no duplicates, max 8.
-- Page: current lap computed locally (`cur` + `performance.now()`); beep (WebAudio) and voice (speechSynthesis, en-US) are opt-in toggles (iOS needs a tap); vibration; flash on new/best lap; laps much shorter than the driver's median (< 60 %) are marked "short?"; per-lap ⋯ menu with join/delete (no confirm dialogs, the menu is the second step).
+- Page: current lap computed locally (`cur` + `performance.now()`); beep (WebAudio) and voice (speechSynthesis, en-US) are opt-in toggles remembered in localStorage, unlocked on the first `pointerdown`; big view overlay (⛶, Fullscreen API where available); beam-blocked warning after 3 s broken; sensor tuning panel (no-trigger band, noise, depth, suggestion within ±20 % counts as fine); vibration; flash on new/best lap; laps much shorter than the driver's median (< 60 %) are marked "short?"; per-lap ⋯ menu with join/delete (no confirm dialogs, the menu is the second step).
 
 ## Decisions and alternatives considered
 
