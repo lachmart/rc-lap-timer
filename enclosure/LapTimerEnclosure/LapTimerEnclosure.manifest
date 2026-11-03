@@ -1,0 +1,10 @@
+{
+	"autodeskProduct": "Fusion360",
+	"type": "script",
+	"author": "rc-lap-timer",
+	"description": {
+		"": "Builds the 3D-printable RC lap timer enclosure: timer box with covers, laser post with lid."
+	},
+	"supportedOS": "windows|mac",
+	"editEnabled": true
+}
