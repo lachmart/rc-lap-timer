@@ -208,7 +208,11 @@ function heatVoice(r) {
   if (phase === 'race' || phase === 'heat') {
     const secs = Math.ceil((phase === 'race' ? r.countdownMs : r.heatCountdownMs) / 1000);
     const who = phase === 'race' ? S.race.order[0] : r.current && r.current.driver;
-    if (secs <= 4 && hv.named !== heat && who) { hv.named = heat; say(driverName(who)); }
+    if (secs <= 4 && hv.named !== heat && who) {
+      hv.named = heat;
+      // the heat result is still being read and ends with "<name>, get ready": don't cut it off for the name
+      if (!(speechSynthesis.speaking || speechSynthesis.pending)) say(driverName(who));
+    }
     if (secs <= 3 && secs > 0 && secs !== hv.count) { hv.count = secs; say(String(secs)); tone(660, .15); }
   } else if ((hv.phase === 'race' || hv.phase === 'heat') && phase === 'running') {
     hv.count = null;
@@ -224,9 +228,9 @@ function heatVoice(r) {
     const lap = countedLaps(0).pop();
     const kind = lapKind(lap);
     let text = (lap[L.MS] / 1000).toFixed(2) + (kind === 'best' ? ', best lap' : kind === 'pb' ? ', personal best' : '');
-    if (heat > hv.heat) {                               // that lap ended a heat
+    if (heat > hv.heat) {                               // that lap ended a heat: kept short, a countdown may follow
       const done = r.rows.find(x => x.heat === hv.heat);
-      if (done) text += `. ${rowName(done)} finished, ${(done.totalMs / 1000).toFixed(1)} seconds, position ${done.pos}`;
+      if (done) text = `${rowName(done)} finished, ${(done.totalMs / 1000).toFixed(1)} seconds, position ${done.pos}`;
       if (r.allIn) { text += `. Race finished. Winner, ${rowName(r.rows[0])}`; finishSaid = true; }
       else if (r.current) text += `. ${rowName(r.current)}, get ready`;
     } else if (r.current && r.current.started && S.race.laps - r.current.laps === 1) {
@@ -384,7 +388,13 @@ function raceViewInit() {
     undoSaid = true;
     if (!await api('undo', { car: 0 })) undoSaid = false;
   };
-  $('heatStart').onclick = () => { unlockAudio(); api('race/next'); };
+  $('heatStart').onclick = async () => {
+    unlockAudio();
+    if (!await api('race/next')) return;
+    // the tap cuts whatever is being read, cleanly: the name now, then 3, 2, 1, go
+    const cur = lastHeats && lastHeats.current;
+    if (cur && hv) { hv.named = S.race.heat; say(rowName(cur)); }
+  };
   $('prepKind').onclick = e => {
     const v = e.target.dataset.prep;
     if (v === undefined) return;
