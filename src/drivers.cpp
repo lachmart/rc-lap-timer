@@ -3,6 +3,7 @@
 #include "config.h"
 #include "cars.h"
 #include "laps.h"
+#include "lines.h"
 
 static Preferences prefs;
 static Driver      list[MAX_DRIVERS];
@@ -46,13 +47,10 @@ static void save() {
 void driversLoad() {
   prefs.begin("drivers", false);
   String all = prefs.getString("names", "");
-  int start = 0;
-  while (start <= (int)all.length() && count < MAX_DRIVERS) {
-    int end = all.indexOf('\n', start);
-    if (end < 0) end = all.length();
-    String name = all.substring(start, end);
+  int pos = 0;
+  String name;
+  while (count < MAX_DRIVERS && nextLine(all, pos, name)) {
     if (name.length()) list[count++] = { newId(), name };
-    start = end + 1;
   }
 }
 

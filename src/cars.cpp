@@ -3,6 +3,7 @@
 #include "config.h"
 #include "drivers.h"
 #include "laps.h"
+#include "lines.h"
 #include "nec.h"
 
 static Preferences prefs;
@@ -23,24 +24,16 @@ static void save() {
   prefs.putString("drv", drv);
 }
 
-static String line(const String& all, int index) {
-  int start = 0;
-  for (int i = 0; i < index; i++) {
-    start = all.indexOf('\n', start);
-    if (start < 0) return "";
-    start++;
-  }
-  int end = all.indexOf('\n', start);
-  return all.substring(start, end < 0 ? all.length() : end);
-}
-
 void carsLoad() {
   prefs.begin("cars", false);
-  String tx = prefs.getString("tx", ""), names = prefs.getString("names", ""), drv = prefs.getString("drv", "");
+  String tx[MAX_CARS], names[MAX_CARS], drv[MAX_CARS];
+  splitLines(prefs.getString("tx", ""), tx, MAX_CARS);
+  splitLines(prefs.getString("names", ""), names, MAX_CARS);
+  splitLines(prefs.getString("drv", ""), drv, MAX_CARS);
   for (int s = 0; s < MAX_CARS; s++) {
-    cars[s].tx   = s ? (uint16_t)strtoul(line(tx, s).c_str(), nullptr, 16) : 0;
-    cars[s].name = line(names, s);
-    lapsSetDriver(s, driversFind(line(drv, s)));
+    cars[s].tx   = s ? (uint16_t)strtoul(tx[s].c_str(), nullptr, 16) : 0;
+    cars[s].name = names[s];
+    lapsSetDriver(s, driversFind(drv[s]));
   }
   if (lapsDriver(0) == 0 && driversCount() > 0) carsDriverAdded(driversAt(0).id);   // first start after an update
 }
