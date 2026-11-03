@@ -2,7 +2,7 @@
 // the app and unit-tested with node (test/js/race.test.js).
 //
 // Lap entries: [ms, driver, deleted, continues, car, num, precise, endMs], oldest first.
-// L is the one definition of that layout for the app; src/web.cpp and tools/mock_server.py write it.
+// L is the one definition of that layout for the app; src/webjson.cpp and tools/mock_server.py write it.
 (function (root) {
   'use strict';
 

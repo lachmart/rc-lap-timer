@@ -10,6 +10,7 @@
 #include "sensor.h"
 #include "settings.h"
 #include "timing.h"
+#include "webjson.h"
 #include "wlan.h"
 #include "zround.h"
 
@@ -24,157 +25,58 @@ static WebSocketsServer ws(81);
 
 static bool stateDirty = false;        // something outside laps changed, send state to all clients
 
-// ---------------------------------------------------------------- JSON
-static void addJsonString(String& j, const String& s) {
-  j += '"';
-  for (unsigned i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (c == '"' || c == '\\') { j += '\\'; j += c; }
-    else if ((uint8_t)c < 0x20) { char esc[7]; snprintf(esc, sizeof esc, "\\u%04x", c); j += esc; }
-    else j += c;
-  }
-  j += '"';
-}
-
-static const char* raceStateName(RaceState r) {
-  switch (r) {
-    case RaceState::Countdown: return "countdown";
-    case RaceState::Running:   return "running";
-    default:                   return "off";
-  }
-}
-
-static const char* jsonBool(bool b) { return b ? "true" : "false"; }
-
-static void addRace(String& j) {
-  RaceInfo race = timingRace();
-  j += ",\"race\":{\"state\":\""; j += raceStateName(race.state);
-  j += "\",\"go\":";    j += (long)(race.goUs / 1000);
-  j += ",\"laps\":";    j += race.laps;
-  j += ",\"minutes\":"; j += race.minutes;
-  j += ",\"setLaps\":"; j += settings.raceLaps;
-  j += ",\"setMin\":";  j += settings.raceMin;
-  j += '}';
-}
-
-static void addDrivers(String& j) {
-  j += ",\"drivers\":[";
-  for (int i = 0; i < driversCount(); i++) {
-    if (i) j += ',';
-    j += "{\"id\":"; j += driversAt(i).id;
-    j += ",\"name\":"; addJsonString(j, driversAt(i).name);
-    j += '}';
-  }
-  j += ']';
-}
-
-static void addCars(String& j, const LapSnapshot& s) {
-  j += ",\"cars\":[";                // used slots only
-  bool first = true;
-  for (int c = 0; c < MAX_CARS; c++) {
-    if (!carsUsed(c)) continue;
-    const CarState& cs = s.cars[c];
-    if (!first) j += ',';
-    first = false;
-    j += "{\"slot\":";    j += c;
-    j += ",\"tx\":";      j += carsAt(c).tx;
-    j += ",\"name\":";    addJsonString(j, carsAt(c).name);
-    j += ",\"driver\":";  j += cs.driver;
-    j += ",\"running\":"; j += jsonBool(cs.running);
-    j += ",\"cur\":";     j += cs.curMs;
-    j += ",\"canUndo\":"; j += jsonBool(cs.canUndo);
-    j += ",\"laps\":";    j += cs.laps;
-    j += '}';
-  }
-  j += ']';
-}
-
-static void addStats(String& j, const LapSnapshot& s) {
-  j += ",\"stats\":[";
-  for (int i = 0; i < s.nStats; i++) {
-    const DriverStats& d = s.stats[i];
-    if (i) j += ',';
-    j += "{\"key\":";    j += d.key;
-    j += ",\"count\":";  j += d.count;
-    j += ",\"best\":";   j += d.bestMs;
-    j += ",\"total\":";  j += d.totalMs;
-    j += '}';
-  }
-  j += ']';
-}
-
-// [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first; read by the app through L in web/race.js
-static void addLaps(String& j, const LapSnapshot& s) {
-  j += ",\"laps\":[";
-  int prevOfCar[MAX_CARS];
-  for (int c = 0; c < MAX_CARS; c++) prevOfCar[c] = -1;
-  for (int i = 0; i < s.n; i++) {
-    const Lap& l = s.laps[i];
-    bool cont = prevOfCar[l.car] >= 0 && lapsContinues(s.laps[prevOfCar[l.car]], l);
-    prevOfCar[l.car] = i;
-    if (i) j += ',';
-    j += '['; j += l.ms; j += ','; j += l.driver;
-    j += ','; j += l.deleted ? '1' : '0';
-    j += ','; j += cont ? '1' : '0';
-    j += ','; j += l.car;
-    j += ','; j += l.num;
-    j += ','; j += l.precise ? '1' : '0';
-    j += ','; j += (long)(l.endUs / 1000);
-    j += ']';
-  }
-  j += ']';
-}
-
-static String buildState() {
+// ---------------------------------------------------------------- JSON (text is written by webjson.cpp)
+static std::string buildState() {
   static LapSnapshot s;                // large array, keep it off the stack
   int64_t now = esp_timer_get_time();
   lapsSnapshot(s, now);
-  SensorLive live = sensorLive();
+  String staIp = wlanStaIp();
 
-  String j;
-  j.reserve(1200 + s.n * 44);
-  j += "{\"t\":\"state\",\"now\":"; j += (long)(now / 1000);   // ms; client converts the other times with it
-  j += ",\"multi\":";   j += jsonBool(settings.multi);
-  addRace(j);
-  j += ",\"count\":";   j += s.count;
-  j += ",\"best\":";    j += s.bestMs;
-  j += ",\"ignored\":"; j += s.ignored;
-  j += ",\"unident\":"; j += live.unidentified;
-  j += ",\"minLap\":";  j += settings.minLapMs;
-  j += ",\"delta\":";   j += settings.delta;
-  j += ",\"zround\":{\"on\":"; j += jsonBool(settings.zround);
-  j += ",\"connected\":"; j += jsonBool(zroundConnected());
-  j += ",\"racing\":";  j += jsonBool(zroundRacing());
-  j += "},\"ssid\":";   addJsonString(j, settings.ssid);
-  j += ",\"staIp\":\""; j += wlanStaIp(); j += '"';
-  j += ",\"sta\":\"";   j += wlanStaState(); j += '"';
-  j += ",\"staErr\":\""; j += wlanStaError(); j += '"';
-  j += ",\"hasPass\":";  j += jsonBool(settings.pass.length());
-  addDrivers(j);
-  addCars(j, s);
-  addStats(j, s);
-  addLaps(j, s);
-  j += '}';
+  JsonDriver drivers[MAX_DRIVERS];
+  int nDrivers = 0;
+  for (int i = 0; i < driversCount() && nDrivers < MAX_DRIVERS; i++)
+    drivers[nDrivers++] = { driversAt(i).id, driversAt(i).name.c_str() };
+  JsonCar cars[MAX_CARS];              // used slots only
+  int nCars = 0;
+  for (int c = 0; c < MAX_CARS; c++)
+    if (carsUsed(c)) cars[nCars++] = { c, carsAt(c).tx, carsAt(c).name.c_str() };
+
+  StateInput in = {};
+  in.nowUs           = now;
+  in.multi           = settings.multi;
+  in.race            = timingRace();
+  in.setLaps         = settings.raceLaps;
+  in.setMin          = settings.raceMin;
+  in.unidentified    = sensorLive().unidentified;
+  in.minLapMs        = settings.minLapMs;
+  in.delta           = settings.delta;
+  in.zroundOn        = settings.zround;
+  in.zroundConnected = zroundConnected();
+  in.zroundRacing    = zroundRacing();
+  in.ssid            = settings.ssid.c_str();
+  in.staIp           = staIp.c_str();
+  in.sta             = wlanStaState();
+  in.staErr          = wlanStaError();
+  in.hasPass         = settings.pass.length() > 0;
+  in.drivers         = drivers;
+  in.nDrivers        = nDrivers;
+  in.cars            = cars;
+  in.nCars           = nCars;
+  in.laps            = &s;
+
+  std::string j;
+  webjsonState(j, in);
   return j;
 }
 
-static String buildLive() {
-  SensorLive l = sensorLive();
+static std::string buildLive() {
   int64_t now = esp_timer_get_time();
-  String j = "{\"t\":\"live\",\"raw\":";
-  j += l.raw;
-  j += ",\"base\":";    j += l.base;
-  j += ",\"broken\":";  j += jsonBool(l.broken);
-  j += ",\"cur\":[";                   // lap in progress per car slot
-  for (int c = 0; c < MAX_CARS; c++) { if (c) j += ','; j += lapsCurrentMs(c, now); }
-  j += "],\"noise\":";  j += l.noise;
-  j += ",\"peak\":";    j += l.peak;
-  j += ",\"suggest\":"; j += l.suggest;
-  j += ",\"irId\":";    j += l.irId;
-  j += ",\"irAgo\":";   j += l.irAgoMs;
-  j += ",\"unident\":"; j += l.unidentified;
-  j += ",\"rssi\":";    j += wlanRssi();
-  j += '}';
+  LiveInput in;
+  in.sensor = sensorLive();
+  for (int c = 0; c < MAX_CARS; c++) in.cur[c] = lapsCurrentMs(c, now);
+  in.rssi = wlanRssi();
+  std::string j;
+  webjsonLive(j, in);
   return j;
 }
 
@@ -210,20 +112,13 @@ static void handleWifi() {
 }
 
 static void handleScanResults() {
-  String j = "{\"scanning\":";
-  j += jsonBool(wlanScanning());
-  j += ",\"networks\":[";
   const WlanNetwork* list;
   int n = wlanScanResults(list);
-  for (int i = 0; i < n; i++) {
-    if (i) j += ',';
-    j += "{\"ssid\":"; addJsonString(j, list[i].ssid);
-    j += ",\"rssi\":"; j += list[i].rssi;
-    j += ",\"open\":"; j += jsonBool(list[i].open);
-    j += '}';
-  }
-  j += "]}";
-  server.send(200, "application/json", j);
+  JsonNetwork nets[WLAN_MAX_NETWORKS];
+  for (int i = 0; i < n && i < WLAN_MAX_NETWORKS; i++) nets[i] = { list[i].ssid.c_str(), list[i].rssi, list[i].open };
+  std::string j;
+  webjsonScan(j, wlanScanning(), nets, n < WLAN_MAX_NETWORKS ? n : WLAN_MAX_NETWORKS);
+  server.send(200, "application/json", j.c_str());
 }
 
 // Captive portal: phones probe URLs like /generate_204 or /hotspot-detect.html.
@@ -240,8 +135,8 @@ static void handleNotFound() {
 // ---------------------------------------------------------------- WebSocket
 static void onWsEvent(uint8_t num, WStype_t type, uint8_t*, size_t) {
   if (type == WStype_CONNECTED) {
-    String s = buildState();
-    ws.sendTXT(num, s);
+    std::string s = buildState();
+    ws.sendTXT(num, s.c_str(), s.size());
   }
 }
 
@@ -251,7 +146,7 @@ void webBegin() {
   server.on("/style.css", HTTP_GET, []() { serveStatic("text/css", STYLE_CSS); });
   server.on("/app.js",    HTTP_GET, []() { serveStatic("application/javascript", APP_JS); });
   server.on("/race.js",   HTTP_GET, []() { serveStatic("application/javascript", RACE_JS); });
-  server.on("/api/state", HTTP_GET, []() { server.send(200, "application/json", buildState()); });
+  server.on("/api/state", HTTP_GET, []() { server.send(200, "application/json", buildState().c_str()); });
 
   // session
   server.on("/api/reset",      HTTP_POST, []() { timingNewSession(); sendResult(true); });
@@ -308,13 +203,13 @@ void webLoop() {
     sentSta      = sta;
     sentStaErr   = err;
     stateDirty   = false;
-    String s = buildState();
-    ws.broadcastTXT(s);
+    std::string s = buildState();
+    ws.broadcastTXT(s.c_str(), s.size());
   }
 
   if (millis() - lastLive >= LIVE_EVERY && ws.connectedClients() > 0) {
     lastLive = millis();
-    String l = buildLive();
-    ws.broadcastTXT(l);
+    std::string l = buildLive();
+    ws.broadcastTXT(l.c_str(), l.size());
   }
 }
