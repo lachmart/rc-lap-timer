@@ -26,19 +26,18 @@
       <button data-tab="Settings">Settings<span class="alert" id="setAlert" hidden></span></button>
     </nav>
   </header>
+  <div class="warn offline" id="offlineWarn" hidden>No connection to the timer. Times on screen are not live; reconnecting…</div>
 
   <!-- ================================================================ training -->
   <main class="tab" id="tabTraining">
-    <button class="banner" id="raceBanner" hidden>Race running <span id="raceBannerTxt"></span> <b>Open</b></button>
-
     <!-- one car, beam only -->
     <section class="card hero" id="curCard">
-      <div class="state" id="state">Waiting for start pass</div>
+      <div class="state" id="state">Waiting for the first crossing</div>
       <div class="big" id="cur">--.---</div>
       <div class="warn" id="beamWarn" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
       <div class="row">
-        <button id="undo" disabled title="A false trigger split the lap: remove that pass, the lap continues">↶ Undo pass</button>
-        <button id="restart" title="Drop the lap in progress, the next pass starts timing">⟲ Restart lap</button>
+        <button id="undo" disabled title="A false trigger split the lap: remove the last crossing, the lap continues">↶ Undo crossing</button>
+        <button id="restart" title="Drop the lap in progress, the next crossing starts timing">⟲ Restart lap</button>
       </div>
     </section>
 
@@ -81,7 +80,7 @@
     <section class="card" id="lapsCard">
       <h2>Laps</h2>
       <ol id="laps"></ol>
-      <p class="hint" id="noLaps">No laps yet. The first pass starts the clock, every pass after it is a lap.</p>
+      <p class="hint" id="noLaps">No laps yet. The first crossing starts the clock, every crossing after it is a lap.</p>
     </section>
 
     <button class="wide danger" id="reset">New session</button>
@@ -92,12 +91,12 @@
     <!-- race in progress -->
     <section class="card" id="raceCard" hidden>
       <div class="race-head"><h2 id="raceTitle">Race</h2><span class="race-clock" id="raceClock"></span></div>
-      <!-- what to do right now, who does it: one place, big -->
+      <!-- what to do right now, and who: the one big instruction -->
       <div class="call" id="raceCall"><div class="call-main" id="callMain"></div><div class="call-sub" id="callSub"></div></div>
       <div class="countdown" id="countdown" hidden></div>
+      <button class="wide primary go" id="heatStart" hidden>Start</button>
       <div class="warn" id="beamWarn3" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
       <div id="heatNow" hidden>                 <!-- heats: the driver on the track, live -->
-        <div class="hn-who"><span id="hnName"></span><span id="hnLap"></span></div>
         <div class="big" id="hnCur">--.---</div>
         <div class="hn-stats">
           <div><div class="sub">Total</div><b id="hnTotal">–</b></div>
@@ -106,18 +105,15 @@
           <div><div class="sub" id="hnVs">Split</div><b id="hnSplit">–</b></div>
         </div>
       </div>
-      <button class="wide primary go" id="heatStart" hidden>Start</button>
       <div class="hn-next" id="hnNext" hidden></div>
       <table class="board standings">
-        <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
+        <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Time</th><th>Best</th><th id="standGap">Gap</th></tr></thead>
         <tbody id="standings"></tbody>
       </table>
       <p class="hint" id="raceHint"></p>
       <button class="wide primary" id="raceAgain" hidden>↻ Race again</button>
-      <div class="row">
-        <button id="raceUndo" disabled title="A false trigger: remove the last pass, the lap continues (in heats also the handover it caused)">↶ Undo last pass</button>
-        <button id="raceStop">Back to training</button>
-      </div>
+      <button class="wide" id="raceUndo" disabled title="A false trigger: remove the last crossing, the lap continues (in heats also the handover it caused)">↶ Undo last crossing</button>
+      <button class="wide danger" id="raceStop">Stop race</button>
     </section>
 
     <!-- race setup -->
@@ -134,7 +130,7 @@
         <button type="button" class="step" data-step="1" aria-label="More">+</button>
       </div>
       <div id="heatSetup" hidden>
-        <div class="head"><h3>Drivers in turn</h3><button type="button" class="link" id="heatEdit" aria-pressed="false">Edit</button></div>
+        <h3>Drivers in turn</h3>
         <div class="chips" id="heatOrder"></div>
         <form class="add" id="raceAddForm" hidden>
           <input id="raceNewName" maxlength="16" placeholder="Driver name" autocomplete="off" enterkeyhint="done">
@@ -149,14 +145,20 @@
           <button type="button" data-prep="30">30 s</button>
           <button type="button" data-prep="60">60 s</button>
         </div>
-        <p class="hint">Tap a driver to leave them out, tap again to put them at the end. After a driver's last lap
-          the next one gets ready: until someone taps Start, or for the time set. Then 3, 2, 1, go; their time
-          starts at the car's first crossing after "go". Fastest total wins.</p>
+        <p class="hint">Tap a driver to leave them out or put them back at the end.</p>
       </div>
       <button class="wide primary go" id="raceStart">Start race</button>
-      <p class="hint" id="raceRules">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first
-        crossing after "go" starts its timing. The race ends when the leader completes the last lap (or crosses after
-        the time is up); every other car finishes at its next crossing.</p>
+      <details class="rules"><summary>Rules</summary>
+        <ul>
+          <li>Starting a race clears the laps of the session. A countdown runs: 3, 2, 1, GO.</li>
+          <li>Each car's (driver's) time starts at its first crossing after GO; crossings before GO don't count.</li>
+          <li id="rulesHeats">Drivers in turn: each drives the laps on their own, fastest total wins (a tie goes to the
+            better best lap). After a driver's last lap the next one gets ready, until Start is tapped or for the time set.</li>
+          <li id="rulesLaps">Laps race: the first car to complete the laps wins, every other car finishes at its next crossing.</li>
+          <li id="rulesTime">Time race: every car finishes at its first crossing after the time is up. More laps first, then who crossed earlier.</li>
+          <li>A car that stops crossing after the finish is out (DNF) after 30 s or two of its best laps.</li>
+        </ul>
+      </details>
     </section>
   </main>
 
@@ -182,14 +184,14 @@
         <div><dt>Pass depth</dt><dd id="peak">–</dd></div>
         <div><dt>Suggested</dt><dd id="suggest">–</dd></div>
       </dl>
-      <p class="hint" id="tuneHint">Drive (or wave a hand) through the beam once to measure how deep a pass goes.</p>
+      <p class="hint" id="tuneHint">Drive (or wave a hand) through the beam once to measure how deep a crossing goes.</p>
       <button class="wide" id="useSuggest" hidden>Use suggested sensitivity</button>
 
       <label>Min. lap time (s) <input id="minLap" type="number" step="0.1" min="0.3"></label>
       <label>Sensitivity <input id="delta" type="number" step="50" min="50" max="4000"></label>
       <div class="row"><button id="save">Save</button><button id="calibrate">Calibrate idle</button></div>
       <p class="hint">Calibrate with a clear beam aimed at the sensor. The blue LED on the board lights while the beam is
-        broken. Discarded passes (shorter than the min. lap time): <b id="ign">0</b>.</p>
+        broken. Discarded crossings (shorter than the min. lap time): <b id="ign">0</b>.</p>
     </section>
 
     <section class="card" id="wifiCard">
@@ -205,10 +207,8 @@
         <div class="row"><button>Connect</button><button type="button" id="wifiForget">Forget</button></div>
       </form>
 
-      <p class="hint">Join your home Wi-Fi so the phone can stay on it with internet; the timer is then at
-        <b>laptimer.local</b>. The RC_Lap_Timer network always runs too, and changes here don't restart the timer.
-        Out of range, the timer retries every 30 s while no phone is on RC_Lap_Timer.
-        At the track, a phone hotspot works as the home network.</p>
+      <p class="hint">On your home Wi-Fi the timer is at <b>laptimer.local</b>, and the RC_Lap_Timer network keeps
+        running too. At the track a phone hotspot works as the home network.</p>
     </section>
 
     <section class="card" id="usbCard">
@@ -216,7 +216,7 @@
       <label class="switch"><span>ZRound decoder on the USB port</span><input type="checkbox" id="zround"></label>
       <div class="wstat" id="zstat"></div>
       <p class="hint">Connect the timer to the laptop with ZRound by USB and choose the RiCino decoder, 19200 baud.
-        ZRound then runs the races itself; this app keeps showing the passes. Only transponder cars are sent.
+        ZRound then runs the races itself; this app keeps showing the laps. Only transponder cars are sent.
         While this is on, the USB port has no debug log.</p>
     </section>
   </main>
@@ -224,6 +224,7 @@
 
   <!-- big view: everything sized in em from one font size that fitBig() sets to fit the screen -->
   <div class="bigview" id="bigView" hidden>
+    <button class="bv-close" id="bvClose" aria-label="Close big view">✕</button>
     <div class="bv-inner" id="bvInner">
       <div id="bvSingle">
         <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
@@ -244,10 +245,10 @@
             <div><div class="sub">Up next</div><div class="bv-mid" id="bvHNext">–</div></div>
           </div>
         </div>
+        <button class="primary bv-start" id="bvStart" hidden>Start</button>
         <table class="bv-table"><tbody id="bvRows"></tbody></table>
       </div>
       <div class="warn" id="bvWarn" hidden></div>
-      <div class="bv-exit">tap to close</div>
     </div>
   </div>
 </body>

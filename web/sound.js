@@ -73,6 +73,7 @@ function say(text) {
 
 function setVoiceStuck(stuck) {
   $('voice').classList.toggle('stuck', stuck);
+  $('voice').textContent = stuck ? 'No sound' : 'Voice';   // phones have no tooltip: say it on the switch
   $('voice').title = stuck ? 'This browser accepts speech but doesn\'t play it. Restart the browser (Chrome on a Mac: quit with ⌘Q).'
     : 'Read out lap times';
 }

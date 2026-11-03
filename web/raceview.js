@@ -1,9 +1,11 @@
-// RC Lap Timer – race view (standings, clock, countdown voice), race setup and the big view overlay.
+// RC Lap Timer – race card (instruction, live time, standings), race voice, race setup and the big view.
 // Part of the client, see app.js; standings come from race.js.
+//
+// The race card has one big instruction (setCall): who does what right now. Everything else on the card
+// is information that doesn't repeat it: the title stays put ("Heat 2 of 3", "Race · 10 laps").
 
 let raceKind = 'laps';
 let heatPick = null;   // heats: driver ids in the chosen order, null = all drivers in list order
-let heatEditing = false;  // race setup: driver chips remove drivers
 let heatAdded = '';    // name just added in race setup: it joins the end of the order
 let prepSec = 0;       // heats: time between drivers, 0 = a Start button (remembered per phone)
 try { prepSec = +localStorage.getItem('prep') || 0; } catch (e) { /* not kept */ }
@@ -12,57 +14,14 @@ const clock = ms => {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+const signed = ms => (ms < 0 ? '−' : '+') + fmt(Math.abs(ms));
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // Who a standings row is: the driver in heats, else whoever is on the car.
 const rowName = x => x.heat !== undefined ? driverName(x.driver) : whoOn(x.car);
 
-// Race standings: recomputed on every state and a few times per second for the clock.
-function renderRace() {
-  if (!racing()) return null;
-  const r = Race.standings(S, serverNow());
-  $('standLast').textContent = r.heats ? 'Total' : 'Last';
-  $('standings').parentElement.hidden = r.phase === 'countdown';
-  queueMicrotask(() => { $('raceBannerTxt').textContent = $('raceTitle').textContent; });
-  renderRaceUndo();
-  if (r.heats) return renderHeats(r);
-  $('heatNow').hidden = $('hnNext').hidden = $('heatStart').hidden = true;
-  const lapsRace = S.race.laps > 0;
-  const lead = r.rows[0];
-
-  $('raceTitle').textContent = r.phase === 'countdown' ? 'Get ready'
-    : r.allIn ? 'Race finished'
-    : r.finished ? 'Finished, waiting for the others'
-    : lapsRace ? `Race · lap ${Math.min((lead ? lead.laps : 0) + 1, S.race.laps)} / ${S.race.laps}`
-    : `Race · ${S.race.minutes} min`;
-  $('raceClock').textContent = r.phase !== 'running' ? ''
-    : r.finished ? clock(r.finishMs)                    // stopped at the winner's time
-    : r.remainingMs !== null ? clock(r.remainingMs) : clock(r.elapsedMs);
-
-  const secs = Math.ceil(r.countdownMs / 1000);
-  $('countdown').hidden = r.phase !== 'countdown';
-  $('countdown').textContent = secs > 3 ? 'Ready' : secs > 0 ? secs : 'GO';
-  $('standings').innerHTML = r.phase === 'countdown' ? '' : standingsRows(r);
-  const winner = r.allIn && r.rows[0] && r.rows[0].started ? rowName(r.rows[0]) : '';
-  if (r.phase === 'countdown') setCall('ready', 'Line up', 'Each car\'s time starts at its first crossing after GO.');
-  else if (r.allIn) setCall('done', 'Race finished', winner ? `${winner} wins` : '');
-  else if (r.finished) setCall('ready', 'Finish!', 'Every car finishes at its next crossing.');
-  else if (r.rows.some(x => !x.started)) setCall('go', 'GO!', 'Each car\'s time starts at its first crossing.');
-  else setCall('', lapsRace ? `Lap ${Math.min((lead ? lead.laps : 0) + 1, S.race.laps)} / ${S.race.laps}` : `${clock(r.remainingMs || 0)} left`, '');
-  $('raceHint').textContent = '';
-  $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
-  $('raceAgain').hidden = !r.allIn;
-  return r;
-}
-
-// One car: undo the last pass from the race card (in heats also the handover it caused).
-function renderRaceUndo() {
-  const car0 = carBySlot(0);
-  $('raceUndo').hidden = multi();
-  $('raceUndo').disabled = !(car0 && car0.canUndo);
-}
-
-// What to do right now, who does it: the one big line on the race card (and the big view).
-// kind: 'ready' (yellow: get ready, line up, final lap), 'go' (green), 'done' or '' (plain).
+// The instruction. kind: 'ready' (yellow: act now – line up, get ready, final lap, finish),
+// 'go' (green), 'done' or '' (plain).
 let call = { kind: '', main: '' };
 function setCall(kind, main, sub) {
   call = { kind, main };
@@ -71,41 +30,75 @@ function setCall(kind, main, sub) {
   $('callSub').textContent = sub || '';
 }
 
-// Heats: one car, the drivers in turn. The card shows who drives (live lap and total to the ms)
-// and who is next.
-const signed = ms => (ms < 0 ? '−' : '+') + fmt(Math.abs(ms));
+// Countdown digits only: 3, 2, 1, GO (longer prep times count down from their seconds)
+function renderCountdown(ms) {
+  $('countdown').hidden = ms === null;
+  if (ms !== null) { const s = Math.ceil(ms / 1000); $('countdown').textContent = s > 0 ? s : 'GO'; }
+}
 
+// Recomputed on every state and a few times per second for the clock.
+function renderRace() {
+  if (!racing()) return null;
+  const r = Race.standings(S, serverNow());
+  $('standings').parentElement.hidden = r.phase === 'countdown';
+  $('raceUndo').hidden = multi();
+  const car0 = carBySlot(0);
+  $('raceUndo').disabled = !(car0 && car0.canUndo);
+  $('raceAgain').hidden = !r.allIn;
+  $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
+  $('raceStop').className = 'wide' + (r.allIn ? '' : ' danger');
+  if (r.heats) renderHeats(r); else renderLapsRace(r);
+  return r;
+}
+
+// Several cars, or one car without drivers in turn: a laps or a time race.
+function renderLapsRace(r) {
+  $('heatNow').hidden = $('hnNext').hidden = $('heatStart').hidden = true;
+  const N = S.race.laps;
+  const lead = r.rows[0];
+  $('raceTitle').textContent = N > 0 ? `Race · ${plural(N, 'lap')}` : `Race · ${S.race.minutes} min`;
+  $('raceClock').textContent = r.phase !== 'running' ? ''
+    : r.finished ? clock(r.finishMs)                    // stopped at the winner's race time
+    : r.remainingMs !== null ? clock(r.remainingMs) : clock(r.elapsedMs);
+  renderCountdown(r.phase === 'countdown' ? r.countdownMs : null);
+
+  const one = !multi();
+  if (r.phase === 'countdown') setCall('ready', 'Line up', `${one ? 'The' : 'Each car\'s'} time starts at the first crossing after GO.`);
+  else if (r.allIn) setCall('done', 'Race finished', lead && lead.started ? `${rowName(lead)} wins` : '');
+  else if (r.finished) setCall('ready', 'Finish', `${one ? 'The car finishes' : 'Every car finishes'} at its next crossing.`);
+  else if (r.rows.some(x => !x.started)) setCall('go', 'GO', `${one ? 'The' : 'Each car\'s'} time starts at the first crossing.`);
+  else if (N > 0) setCall('', `Lap ${Math.min((lead ? lead.laps : 0) + 1, N)} of ${N}`, '');
+  else setCall('', `${clock(r.remainingMs || 0)} left`, '');
+
+  $('standLast').textContent = 'Time';
+  $('standGap').textContent = 'Gap';
+  $('standings').innerHTML = r.phase === 'countdown' ? '' : r.rows.map(x => {
+    const gap = !x.started ? '' : x.dnf ? 'DNF' : x.pos === 1 ? ''
+      : x.gapLaps ? `+${plural(x.gapLaps, 'lap')}` : x.gapMs ? '+' + fmt(x.gapMs) : '';
+    return `<tr class="${x.pos === 1 && x.started ? 'lead' : ''}">
+      <td>${x.started ? x.pos + '.' : ''}</td>
+      <td>${esc(rowName(x))}${x.finished ? ' ✓' : ''}</td>
+      <td>${x.laps}</td>
+      <td>${x.laps ? fmt(x.totalMs) : '–'}</td>
+      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
+      <td>${x.started ? gap : 'not started'}</td></tr>`;
+  }).join('');
+  $('raceHint').textContent = '';
+}
+
+// Heats: one car, the drivers in turn. Between drivers the Start button is the main thing.
 function renderHeats(r) {
   const cur = r.current;
   const n = S.race.order.length;
   const N = S.race.laps;
   const counting = r.phase === 'countdown';
-  const between = r.phase === 'running' && !r.allIn && r.heatState !== 'running';   // next driver gets ready
+  const between = r.phase === 'running' && !r.allIn && r.heatState !== 'running';
   const heatSecs = Math.ceil(r.heatCountdownMs / 1000);
-  $('raceTitle').textContent = counting ? `Get ready · ${n} heat${n > 1 ? 's' : ''} × ${N} lap${N > 1 ? 's' : ''}`
-    : r.allIn ? 'Race finished' : `Heat ${S.race.heat + 1} / ${n}`;
-  const secs = counting ? Math.ceil(r.countdownMs / 1000) : heatSecs;
-  $('countdown').hidden = !(counting || r.heatState === 'countdown' && !r.allIn);
-  $('countdown').textContent = secs > 3 && counting ? 'Ready' : secs > 0 ? secs : 'GO';
+  $('raceTitle').textContent = r.allIn ? `Results · ${plural(N, 'lap')} each`
+    : counting ? `${plural(n, 'driver')} · ${plural(N, 'lap')} each` : `Heat ${S.race.heat + 1} of ${n}`;
+  $('raceClock').textContent = '';
+  renderCountdown(counting ? r.countdownMs : r.heatState === 'countdown' && !r.allIn ? r.heatCountdownMs : null);
 
-  $('heatNow').hidden = !cur;
-  if (cur) {
-    const name = rowName(cur);
-    $('hnName').textContent = name;
-    $('hnLap').textContent = cur.started ? `lap ${Math.min(cur.laps + 1, N)} / ${N}` : between ? 'up next' : 'not started';
-    $('hnLast').textContent = cur.laps ? fmt(cur.lapMs[cur.laps - 1]) : '–';
-    $('hnBest').textContent = cur.bestMs ? fmt(cur.bestMs) : '–';
-    $('hnVs').textContent = r.vs ? `vs ${driverName(r.vs)}` : 'Split';
-    $('hnSplit').textContent = r.splitMs !== undefined ? signed(r.splitMs) : '–';
-    $('hnSplit').className = r.splitMs === undefined ? '' : r.splitMs <= 0 ? 'ahead' : 'behind';
-    // Start the next driver: when waiting, or earlier than the prep time
-    $('heatStart').hidden = !(between && (r.heatState === 'waiting' || heatSecs > 4));
-    $('heatStart').textContent = r.heatState === 'waiting' ? `Start ${name}` : `Start ${name} now`;
-  } else {
-    $('heatStart').hidden = true;
-  }
-
-  // The instruction
   const name = cur ? rowName(cur) : '';
   const left = cur ? N - cur.laps : 0;
   const nextName = r.next ? driverName(r.next) : '';
@@ -113,26 +106,46 @@ function renderHeats(r) {
   else if (r.allIn) setCall('done', 'Race finished', r.rows[0] ? `${rowName(r.rows[0])} wins` : '');
   else if (r.heatState === 'waiting') setCall('ready', `${name}, take the transmitter`, 'Tap Start when you are ready.');
   else if (r.heatState === 'countdown') setCall('ready', `${name}, get ready`,
-    heatSecs > 3 ? `Start in ${heatSecs} s` : 'Your time starts at the first crossing after GO.');
-  else if (!cur.started) setCall('go', `${name}, GO!`, 'Your time starts when the car crosses the line.');
-  else if (left === 1) setCall('ready', `${name}: FINAL LAP`, nextName ? `${nextName}, get ready, you're next.` : 'Last heat.');
-  else setCall('', `${name}: ${left} laps to go`, '');
+    heatSecs > 3 ? `Starts in ${heatSecs} s` : 'Your time starts at the first crossing after GO.');
+  else if (!cur.started) setCall('go', `${name}, GO`, 'Your time starts when the car crosses the line.');
+  else if (left === 1) setCall('ready', `${name}: final lap`, nextName ? `${nextName}, get ready.` : '');
+  else setCall('', `${name}: ${plural(left, 'lap')} to go`, '');
 
-  // Who comes after the driver on the track (or after the first one, before the start)
+  // Start the next driver: while waiting, or earlier than the prep time
+  $('heatStart').hidden = !(between && (r.heatState === 'waiting' || heatSecs > 4));
+  $('heatStart').textContent = r.heatState === 'waiting' ? `Start ${name}` : `Start ${name} now`;
+
+  // The driver on the track: live lap, total, last, best, split (not between drivers)
+  $('heatNow').hidden = !cur || between || counting;
+  if (cur) {
+    $('hnLast').textContent = cur.laps ? fmt(cur.lapMs[cur.laps - 1]) : '–';
+    $('hnBest').textContent = cur.bestMs ? fmt(cur.bestMs) : '–';
+    $('hnVs').textContent = r.vs ? `vs ${driverName(r.vs)}` : 'Split';
+    $('hnSplit').textContent = r.splitMs !== undefined ? signed(r.splitMs) : '–';
+    $('hnSplit').className = r.splitMs === undefined ? '' : r.splitMs <= 0 ? 'ahead' : 'behind';
+  }
+
+  // The order after the driver on the track (before the start: after the first one)
   const queue = (counting ? S.race.order.slice(1) : [r.next, ...r.after].filter(Boolean)).map(driverName);
   $('hnNext').hidden = r.allIn || !queue.length;
-  $('hnNext').className = 'hn-next';
-  $('hnNext').innerHTML = !queue.length ? '' : `Up next: <b>${esc(queue[0])}</b>`
+  $('hnNext').innerHTML = !queue.length ? '' : `${between ? 'Then' : 'Up next'}: <b>${esc(queue[0])}</b>`
     + (queue.length > 1 ? `<span class="then">then ${esc(queue.slice(1).join(', '))}</span>` : '');
 
-  $('raceClock').textContent = '';
-  $('standings').innerHTML = counting ? '' : standingsRows(r);
-  $('raceHint').textContent = between ? 'Crossings don\'t count until the next driver\'s GO.' : '';
-  $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
-  $('raceAgain').hidden = !r.allIn;
+  $('standLast').textContent = 'Total';
+  $('standGap').textContent = 'Result';
+  $('standings').innerHTML = counting ? '' : r.rows.map(x => {
+    const full = x.finished && x.laps === N;
+    return `<tr class="${x.pos === 1 && full ? 'lead' : ''}${x.current ? ' now' : ''}">
+      <td>${full ? x.pos + '.' : ''}</td>
+      <td>${esc(rowName(x))}</td>
+      <td>${x.laps}</td>
+      <td>${x.laps ? fmt(x.totalMs) : '–'}</td>
+      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
+      <td>${full ? (x.pos === 1 ? '✓' : '+' + fmt(x.gapMs)) : x.finished ? 'stopped' : ''}</td></tr>`;
+  }).join('');
+  $('raceHint').textContent = between ? 'Crossings don\'t count until the next GO.' : '';
   lastHeats = r;
   raceFrame();
-  return r;
 }
 
 // Every frame (from tick() in app.js): the running lap and total of the driver on the track, to the ms.
@@ -148,34 +161,9 @@ function raceFrame() {
   if (!$('bigView').hidden) {
     const grew = cur.length !== $('bvHCur').textContent.length;
     $('bvHCur').textContent = cur;
-    if (grew) fitBig();
     $('bvHTotal').textContent = total;
+    if (grew) fitBig();
   }
-}
-
-function standingsRows(r) {
-  if (r.heats) return r.rows.map(x => {
-    const full = x.finished && x.laps === S.race.laps;
-    const res = full ? (x.pos === 1 ? fmt(x.totalMs) : '+' + fmt(x.gapMs)) : x.current ? (x.started ? 'driving' : 'up next') : x.finished ? 'stopped' : 'waiting';
-    return `<tr class="${x.pos === 1 && full ? 'lead' : ''}">
-      <td>${full ? x.pos + '.' : ''}</td>
-      <td>${esc(rowName(x))}${full ? ' 🏁' : ''}</td>
-      <td>${x.laps}</td>
-      <td>${x.laps ? fmt(x.totalMs) : '–'}</td>
-      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
-      <td>${res}</td></tr>`;
-  }).join('');
-  return r.rows.map(x => {
-    const last = S.laps.filter(l => l[L.CAR] === x.car && !l[L.DELETED] && l[L.END] > S.race.go).pop();
-    const gap = x.pos === 1 ? '' : x.gapLaps ? `+${x.gapLaps} lap${x.gapLaps > 1 ? 's' : ''}` : x.gapMs ? '+' + fmt(x.gapMs) : '';
-    return `<tr class="${x.pos === 1 && x.started ? 'lead' : ''}">
-      <td>${x.started ? x.pos + '.' : ''}</td>
-      <td>${esc(rowName(x))}${x.finished ? ' 🏁' : ''}</td>
-      <td>${x.laps}</td>
-      <td>${last ? fmt(last[L.MS]) : '–'}</td>
-      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
-      <td>${x.started ? gap : 'not started'}</td></tr>`;
-  }).join('');
 }
 
 function raceOnState(s) {
@@ -184,7 +172,7 @@ function raceOnState(s) {
   renderRaceKind();
 }
 
-// Race clock, voice and the big table: a few times per second is enough.
+// Race clock, voice and the big view: a few times per second is enough.
 function raceTick() {
   if (!S) return;
   const r = renderRace();
@@ -227,34 +215,36 @@ function raceVoice(r) {
     say(text);
   }
   if (r.finished && !rv.done) { rv.done = true; say('Race finished'); }
-  if (!r.finished) rv.done = false;                     // e.g. the last pass was undone
+  if (!r.finished) rv.done = false;                     // e.g. the last crossing was undone
   rv.laps = laps;
   rv.heat = heat;
 }
 
+// Big view: the title, the instruction, and in heats the driver's live lap, total and who's next
+// (the standings stay on the card); otherwise a table. fitBig() makes it fit the screen.
 function renderBigTable(r) {
+  // heats: the driver on the track (not between drivers: then the instruction and Start are the point)
+  const hn = r && r.heats && r.current && !r.allIn && r.phase === 'running' && r.heatState === 'running';
+  const between = r && r.heats && !r.allIn && r.phase === 'running' && r.heatState !== 'running';
+  $('bvHeat').hidden = !hn;
+  $('bvRows').parentElement.hidden = !!hn || !!between || (r && r.phase === 'countdown');
+  $('bvStart').hidden = $('heatStart').hidden;
+  $('bvStart').textContent = $('heatStart').textContent;
   if (r) {
-    const hn = r.heats && r.current;
     $('bvTitle').textContent = $('raceTitle').textContent;
     $('bvCall').textContent = call.main;
     $('bvCall').className = 'bv-call' + (call.kind ? ' ' + call.kind : '');
     $('bvClock').textContent = $('raceClock').textContent;
     $('bvCount').hidden = $('countdown').hidden;
     $('bvCount').textContent = $('countdown').textContent;
-    $('bvHeat').hidden = !hn;
     if (hn) $('bvHNext').textContent = r.next ? driverName(r.next) : '–';
-    $('bvRows').parentElement.hidden = hn;               // heats: the card has the standings, here the driver counts
-    $('bvRows').innerHTML = r.heats ? r.rows.filter(x => x.started).map(x => {
-      const full = x.finished && x.laps === S.race.laps;
+    else $('bvRows').innerHTML = r.rows.filter(x => x.started).map(x => {
+      const full = r.heats ? x.finished && x.laps === S.race.laps : x.finished;
+      const right = r.heats ? fmt(x.totalMs) : x.dnf ? 'DNF' : x.pos === 1 ? '' : x.gapLaps ? '+' + x.gapLaps + 'L' : '+' + fmt(x.gapMs);
       return `<tr class="${x.pos === 1 && full ? 'lead' : ''}">
-        <td>${full ? x.pos + '.' : ''}</td><td class="name">${esc(rowName(x))}${full ? ' 🏁' : ''}</td><td>${x.laps}</td>
-        <td>${full ? (x.pos === 1 ? fmt(x.totalMs) : '+' + fmt(x.gapMs)) : fmt(x.totalMs)}</td></tr>`;
-    }).join('') : r.rows.filter(x => x.started).map(x => `<tr class="${x.pos === 1 ? 'lead' : ''}">
-      <td>${x.pos}.</td><td class="name">${esc(rowName(x))}${x.finished ? ' 🏁' : ''}</td><td>${x.laps}</td>
-      <td>${x.pos === 1 ? '' : x.gapLaps ? '+' + x.gapLaps + 'L' : '+' + fmt(x.gapMs)}</td></tr>`).join('');
+        <td>${full || !r.heats ? x.pos + '.' : ''}</td><td class="name">${esc(rowName(x))}</td><td>${x.laps}</td><td>${right}</td></tr>`;
+    }).join('');
   } else {
-    $('bvHeat').hidden = true;
-    $('bvRows').parentElement.hidden = false;
     $('bvCall').textContent = '';
     $('bvTitle').textContent = 'Training';
     $('bvClock').textContent = '';
@@ -270,40 +260,39 @@ function renderBigTable(r) {
   fitBig();
 }
 
+// ---------------------------------------------------------------- race setup
 function renderRaceKind() {
   for (const b of $('raceKind').children) b.classList.toggle('on', b.dataset.kind === raceKind);
   $('raceLenLbl').textContent = raceKind === 'laps' ? (heatOrder().length ? 'Laps per driver' : 'Number of laps') : 'Minutes';
   renderHeatOrder();
 }
 
-// Heats need one car, a laps race and drivers. The order is the tap order; untapped drivers sit out.
 // Heats need one car, a laps race and drivers; the setup offers to add drivers when there are none.
+// The order is the tap order; drivers tapped out sit out. Drivers are removed on the Training tab only.
 const heatsPossible = () => S && !multi() && raceKind === 'laps' && S.drivers.length > 0;
 const heatSetupShown = () => S && !multi() && raceKind === 'laps';
 const heatOrder = () => !heatsPossible() ? []
   : heatPick ? heatPick.filter(id => S.drivers.some(d => d.id === id)) : S.drivers.map(d => d.id);
 
 function renderHeatOrder() {
+  const heats = heatOrder().length > 0;
   $('heatSetup').hidden = !heatSetupShown();
-  $('raceRules').hidden = heatOrder().length > 0;     // the several-cars rules don't apply to heats
+  $('rulesHeats').hidden = !heats;
+  $('rulesLaps').hidden = heats || raceKind !== 'laps';
+  $('rulesTime').hidden = raceKind !== 'minutes';
   if (!heatSetupShown()) return;
   const added = heatAdded && S.drivers.find(d => d.name === heatAdded);
   if (added) { if (heatPick && !heatPick.includes(added.id)) heatPick.push(added.id); heatAdded = ''; }
-  if (!S.drivers.length) heatEditing = false;
-  $('heatSetup').classList.toggle('editing', heatEditing);
-  $('heatEdit').hidden = !S.drivers.length;
-  $('heatEdit').textContent = heatEditing ? 'Done' : 'Edit';
   for (const b of $('prepKind').children) b.classList.toggle('on', +b.dataset.prep === prepSec);
-  $('heatEdit').setAttribute('aria-pressed', heatEditing);
   const order = heatOrder();
   const rest = S.drivers.filter(d => !order.includes(d.id));
-  const rm = heatEditing ? '<span class="rm" aria-hidden="true">✕</span>' : '';
-  const canAdd = !heatEditing && S.drivers.length < MAX_DRIVERS && $('raceAddForm').hidden;
-  $('heatOrder').innerHTML = order.map((id, i) => `<button type="button" class="chip${heatEditing ? '' : ' on'}" data-id="${id}">${heatEditing ? '' : i + 1 + '. '}${esc(driverName(id))}${rm}</button>`)
-    .concat(rest.map(d => `<button type="button" class="chip" data-id="${d.id}">${esc(d.name)}${rm}</button>`))
+  const canAdd = S.drivers.length < MAX_DRIVERS && $('raceAddForm').hidden;
+  $('heatOrder').innerHTML = order.map((id, i) => `<button type="button" class="chip on" data-id="${id}">${i + 1}. ${esc(driverName(id))}</button>`)
+    .concat(rest.map(d => `<button type="button" class="chip" data-id="${d.id}">${esc(d.name)}</button>`))
     .concat(canAdd ? ['<button type="button" class="chip add" data-add="1">+ Add driver</button>'] : []).join('');
-  $('raceDmsg').textContent = heatEditing ? 'Tap a name to remove that driver. Their laps stay.'
-    : !S.drivers.length && $('raceAddForm').hidden ? 'Add drivers to race them in turn, or start without drivers and the car races alone.' : '';
+  if (!S.drivers.length && $('raceAddForm').hidden) {
+    $('raceDmsg').textContent = 'Add drivers to race them in turn, or start without drivers and the car races alone.';
+  } else if ($('raceDmsg').textContent.startsWith('Add drivers')) $('raceDmsg').textContent = '';
 }
 
 function openRaceAdd() {
@@ -324,6 +313,11 @@ function raceFillSetup(s) {
   renderRaceKind();
 }
 
+function closeBig() {
+  $('bigView').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
 function raceViewInit() {
   setInterval(raceTick, 250);
   $('bigOpen').onclick = () => {
@@ -333,10 +327,8 @@ function raceViewInit() {
     const el = document.documentElement;                // real fullscreen where the browser allows it
     if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
   };
-  $('bigView').onclick = () => {
-    $('bigView').hidden = true;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  };
+  $('bvClose').onclick = closeBig;                      // only the ✕ closes: a propped-up phone gets bumped
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !$('bigView').hidden) closeBig(); });
   $('raceKind').onclick = e => {
     const kind = e.target.dataset.kind;
     if (!kind) return;
@@ -350,12 +342,10 @@ function raceViewInit() {
     if (b.dataset.add) { openRaceAdd(); return; }
     const id = +b.dataset.id;
     if (!id) return;
-    if (heatEditing) { api('driver/remove', { id }, `Remove ${driverName(id)}? Their laps stay in the list.`); return; }
     const order = heatOrder();
     heatPick = order.includes(id) ? order.filter(x => x !== id) : [...order, id];
     renderRaceKind();
   };
-  $('heatEdit').onclick = () => { heatEditing = !heatEditing; closeRaceAdd(); };
   $('raceAddCancel').onclick = closeRaceAdd;
   $('raceAddForm').onsubmit = async e => {
     e.preventDefault();
@@ -374,12 +364,12 @@ function raceViewInit() {
     const order = heatOrder();
     if (order.length) { params.order = order.join(','); params.prep = prepSec; }
     unlockAudio();
-    api('race/start', params, order.length
-      ? `Start heats: ${order.map(driverName).join(', ')}, ${n} lap${n > 1 ? 's' : ''} each? The current session is cleared.`
-      : `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
+    api('race/start', params, 'Start the race? The laps of this session are cleared.');
   };
   $('raceUndo').onclick = () => api('undo', { car: 0 });
-  $('heatStart').onclick = () => { unlockAudio(); api('race/next'); };
+  const startNext = () => { unlockAudio(); api('race/next'); };
+  $('heatStart').onclick = startNext;
+  $('bvStart').onclick = startNext;
   $('prepKind').onclick = e => {
     const v = e.target.dataset.prep;
     if (v === undefined) return;
@@ -394,8 +384,8 @@ function raceViewInit() {
     api('race/start', params, 'Start the same race again? These results are cleared.');
   };
   $('raceStop').onclick = async () => {
-    const done = $('raceStop').textContent === 'Back to training';
-    if (await api('race/stop', {}, done ? null : 'Stop the race? The laps stay.')) showTab('Training');
+    const r = Race.standings(S, serverNow());
+    if (await api('race/stop', {}, r.allIn ? null : 'Stop the race? The laps stay.')) showTab('Training');
   };
   $('raceSetup').onclick = e => {                     // − / + around the race length
     const step = +(e.target.dataset.step || 0);

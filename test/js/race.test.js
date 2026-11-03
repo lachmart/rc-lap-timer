@@ -89,24 +89,43 @@ test('laps race: finishing crossing is the first one at or after the winner', ()
   assert.equal(s.rows.find(r => r.car === 1).laps, 2);  // laps after the finish are ignored
 });
 
-test('time race: leader crosses after the time is up, then the rest', () => {
+test('time race: every car finishes at its own first crossing after the time is up', () => {
   // 1 minute race: go at 10000, deadline 70000
   const s = standings(state({ minutes: 1, laps: [
-    ...car(1, 10000, 9000, 9000, 9000, 9000, 9000, 9000, 9000),   // 7th crossing 73000 > deadline
-    ...car(2, 10500, 9500, 9500, 9500, 9500, 9500, 9500, 9500),   // 6 laps by 67500, 7th at 77000
-  ], cars: [1, 2] }), 80000);
+    ...car(1, 10000, 9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000),   // 7th crossing 73000, 8th 82000 (ignored)
+    ...car(2, 10500, 9500, 9500, 9500, 9500, 9500, 9500, 9500),         // 6 laps by 67500, 7th at 77000
+    ...car(3, 10000, 12000, 12000, 12000, 12000, 12000, 12000),        // 5th crossing exactly at 70000 finishes
+  ] }), 85000);
   assert.ok(s.finished);
-  assert.equal(s.rows[0].car, 1);
-  assert.equal(s.rows[0].laps, 7);
-  assert.equal(s.rows[1].laps, 7);
-  assert.ok(s.rows[1].finished);
+  assert.ok(s.allIn);
+  assert.deepEqual(s.rows.map(r => [r.car, r.laps, r.finished]), [[1, 7, true], [2, 7, true], [3, 5, true]]);
+  assert.equal(s.rows[0].totalMs, 63000);             // race time from "go"
+  assert.equal(s.finishMs, 63000);
   assert.equal(s.remainingMs, 0);
 });
 
-test('time race not finished before the leader crosses', () => {
+test('time race: a slower car crossing before the leader still finishes then (no extra lap)', () => {
+  const s = standings(state({ minutes: 1, laps: [
+    ...car(1, 10000, 9000, 9000, 9000, 9000, 9000, 9000, 9000),          // 73000
+    ...car(2, 10000, 10000, 10000, 10000, 10000, 10000, 11000, 10000),   // 6 laps at 70000 (= deadline), 81000 ignored
+  ], cars: [1, 2] }), 90000);
+  assert.equal(s.rows.find(r => r.car === 2).laps, 6);
+});
+
+test('time race: time up is the finish phase even before anyone crosses', () => {
   const s = standings(state({ minutes: 1, laps: car(1, 10000, 9000, 9000) }), 72000);
-  assert.equal(s.finished, false);
+  assert.equal(s.finished, true);
+  assert.equal(s.allIn, false);
   assert.equal(s.remainingMs, 0);
+});
+
+test('a car that stops crossing after the race is decided is out (DNF), so the race ends', () => {
+  const laps = [...car(1, 10000, 8000, 8000), ...car(2, 10000, 9000)];   // 1 wins at 26000; 2 last crossed at 19000
+  let s = standings(state({ raceLaps: 2, laps, cars: [1, 2] }), 40000);
+  assert.equal(s.allIn, false);                        // still within 30 s of the finish
+  s = standings(state({ raceLaps: 2, laps, cars: [1, 2] }), 57000);
+  assert.equal(s.rows.find(r => r.car === 2).dnf, true);
+  assert.equal(s.allIn, true);
 });
 
 test('car that has not started yet is listed last', () => {
@@ -194,6 +213,12 @@ test('heats: a heat the timer moved on from counts as finished even after a lap 
   assert.equal(r1.finished, true);
   assert.equal(r1.laps, 2);
   assert.equal(s.rows[0].driver, 1);                   // not a full heat, so not ranked by time, listed first anyway
+});
+
+test('heats: equal totals go to the better best lap', () => {
+  const laps = [...heat(1, 11000, 9000, 9000), ...heat(2, 40000, 9500, 8500)];
+  const s = standings(heats({ laps, order: [1, 2], heat: 2, raceLaps: 2 }), 70000);
+  assert.deepEqual(s.rows.map(r => r.driver), [2, 1]);
 });
 
 test('heats need one car and a laps race', () => {

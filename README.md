@@ -148,35 +148,41 @@ best lap; **⋯** on a row has Undo pass / Restart lap for that car.
 
 The laser gives the precise time; the transponder only tells which car it was. A pass the beam didn't see
 (cars side by side) is still counted from the transponder, marked **~** (±35 ms). Beam breaks without any
-transponder near (a person, a car without one) are counted as "passes without a transponder".
+transponder near (a person, a car without one) are counted as "crossings without a transponder".
 
 ### Races
 
-On the **Race** tab choose a number of laps or minutes and **Start race**. Drivers can be added and removed there too (with several cars: who drives which car). The session is cleared and a
-countdown runs (3, 2, 1, go, also by voice). Crossings before "go" are ignored; each car's first crossing
-after "go" starts its timing. Standings: more laps first, then whoever crossed the line earlier. The race
-ends when the leader completes the last lap (or, in a time race, crosses the line after the time is up);
-every other car finishes at its next crossing (🏁). **Stop race** / **Back to training** returns to
-training, the laps stay. Undo, join and delete also work in a race; the standings follow.
+On the **Race** tab choose a number of laps or minutes and **Start race** (drivers can be added there;
+with several cars: who drives which car). The laps of the session are cleared and a countdown runs: 3, 2, 1,
+GO (also by voice). Crossings before GO are ignored; each car's first crossing after GO starts its timing,
+and race time counts from GO. While a race runs, the Training tab is locked and the laps list is on the
+Race tab, so laps can be fixed there.
 
-**Heats (one car, drivers in turn):** with one car and a laps race, the Race tab shows the drivers in turn; tap
-to leave one out or change the order. Each driver drives the laps on their own: after a driver's last lap
-the timer hands the car to the next one by itself, who then gets ready: until someone taps **Start <name>**,
-or for the time chosen under **Between drivers** (10/30/60 s, **Start <name> now** cuts it short). Then the
-driver's name, 3, 2, 1, go; their time starts at the car's first crossing after "go", crossings in between
-don't count. Fastest total time wins. After the last heat crossings
-are ignored until **Back to training**.
+- **Laps race:** the first car to complete the laps wins; every other car finishes at its next crossing (✓).
+- **Time race:** every car finishes at its own first crossing after the time is up (club rules); more laps
+  first, then whoever crossed earlier.
+- A car that stops crossing after the race is decided is out (**DNF**) after 30 s or two of its best laps,
+  so the race can finish.
 
-The race card always shows one big instruction: who does what right now ("Martin, line up",
-"Martin, GO!", "Martin: FINAL LAP" with "Jana, get ready, you're next", "Jana, take the transmitter",
-"Race finished"). The voice keeps to short messages that never cut each other off: the countdown
-(in heats with the driver's name), each lap's time, "final lap", "<next driver> next" and "race finished".
-During heats the race card shows the driver on the track with the running lap and heat total to the
-millisecond, last/best lap, the split against the fastest heat so far after the same number of laps, how
-many laps are left, and who is next; on the final lap the next driver is told to get ready (also by voice).
-**↶ Undo last pass** on the race card (one car) undoes the last pass, e.g. a false trigger: the lap
-continues from the pass before. If that pass ended a heat, the handover is undone too and the car is back
-with the previous driver.
+**Heats (one car, drivers in turn):** with one car and a laps race, the Race tab shows the drivers in turn;
+tap to leave one out or put them back at the end. Each driver drives the laps on their own; after a driver's
+last lap the timer hands the car to the next one, who gets ready: until someone taps **Start <name>**, or
+for the time chosen under **Between drivers** (10/30/60 s; **Start <name> now** cuts it short). Then 3, 2,
+1, GO; their time starts at the car's first crossing after GO, crossings in between don't count. Fastest
+total wins (a tie goes to the better best lap). After the last heat crossings are ignored until **Back to
+training**.
+
+The race card shows one big instruction for every moment, who does what right now: "Martin, line up",
+"Martin, GO", "Martin: 2 laps to go", "Martin: final lap" with "Jana, get ready", "Jana, take the
+transmitter" with the Start button, "Race finished". Below it the running lap and heat total to the ms,
+last/best lap, the split against the fastest heat after the same number of laps, who's next and the
+standings. The voice keeps to short messages that never cut each other off: the countdown (in heats with the
+driver's name), each lap's time, "final lap", "<next driver> next" and "race finished".
+
+**↶ Undo last crossing** on the race card (one car) removes the last crossing, e.g. a false trigger: the
+lap continues from the crossing before. If that crossing ended a heat, the heat is reopened (and the car is
+back with that driver). **Stop race** (red) ends a race early, the laps stay; after the finish the same
+button is **Back to training**, and **↻ Race again** starts the same race.
 
 ### ZRound
 
@@ -187,13 +193,13 @@ ZRound then runs its own races; the app keeps working. The USB port has no debug
 
 | Situation | Fix |
 |---|---|
-| Something broke the beam mid-lap, you notice right away | **↶ Undo pass**: the false pass is removed, the lap continues from the real start |
+| Something broke the beam mid-lap, you notice right away | **↶ Undo crossing**: the false crossing is removed, the lap continues from the real start |
 | You notice later: one real lap shows as two short ones | tap **⋯** on the lap → **Join with lap N** |
 | A lap that shouldn't count (crash, cut the track) | **⋯** → **Delete lap** (stays in the list crossed out, not counted) |
-| False start, car stopped mid-lap | **⟲ Restart lap**: the next pass starts timing again |
+| False start, car stopped mid-lap | **⟲ Restart lap**: the next crossing starts timing again |
 
 Laps much shorter than the driver's usual lap are marked **short?**, typically a false trigger to join.
-Passes shorter than the minimum lap time (Sensor section) are discarded automatically.
+Crossings sooner than the minimum lap time (Settings → Sensor) are discarded automatically.
 
 ### Sound and voice
 
@@ -204,8 +210,10 @@ after the first tap on the page.
 ### Big view
 
 **⛶** next to the connection dot opens a full-screen view with large digits, readable from a distance
-with the phone propped up: current lap, last and best with one car; the cars table in training with
-several cars; the countdown and standings in a race. Tap to close.
+with the phone propped up, or on a laptop or TV: current lap, last and best with one car; the cars table
+in training with several cars; in a race the instruction, the countdown, and the running lap (heats, with
+the Start button between drivers) or the standings. It scales itself to fit any screen. Close it with ✕
+(or Esc), so a bumped phone doesn't close it.
 
 ### Sensor and tuning
 

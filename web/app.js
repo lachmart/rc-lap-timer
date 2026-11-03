@@ -111,9 +111,12 @@ function joinSource(i) {
 
 // ---------------------------------------------------------------- rendering
 function conn(state) {
-  const [color, text] = { ws: ['var(--pb)', 'live'], poll: ['var(--flag)', 'polling'], off: ['var(--stop)', 'offline'] }[state];
+  const [color, text] = { ws: ['var(--pb)', 'live'], poll: ['var(--flag)', 'slow link'], off: ['var(--stop)', 'offline'] }[state];
   $('dot').style.background = color;
   $('ctxt').textContent = text;
+  $('conn').classList.toggle('live', state === 'ws');  // the word only shows when it isn't live
+  document.body.classList.toggle('offline', state === 'off');   // times dim: they aren't live
+  $('offlineWarn').hidden = state !== 'off';
 }
 
 function flash(isBest) {
@@ -173,8 +176,12 @@ function renderLayout() {
   $('curCard').hidden = r || m;
   $('trackCard').hidden = r || !m;
   $('lastBest').hidden = m || r;
-  $('raceBanner').hidden = $('raceLive').hidden = !r;
-  $('driversCard').hidden = $('reset').hidden = r;     // in a race the race decides who drives
+  $('raceLive').hidden = !r;
+  // During a race the Race tab is where everything is (laps too); Training waits until it's over
+  const tr = document.querySelector('#tabs [data-tab="Training"]');
+  tr.disabled = r;
+  tr.title = r ? 'A race is running' : '';
+  if (r && tab === 'Training') showTab('Race');
   $('driversTitle').textContent = m ? 'Drivers' : 'Who\'s driving';
   if (wasRacing !== null && r && !wasRacing) showTab('Race');   // a race started, here or on another phone
   wasRacing = r;
@@ -287,12 +294,12 @@ function renderTrack() {
       <td><button class="x" data-car="${c.slot}" title="Fix this car's lap">⋯</button></td></tr>`;
     if (openCar === c.slot) {
       row += `<tr class="acts"><td colspan="6">
-        <button data-undo="${c.slot}" ${c.canUndo ? '' : 'disabled'}>↶ Undo pass</button>
+        <button data-undo="${c.slot}" ${c.canUndo ? '' : 'disabled'}>↶ Undo crossing</button>
         <button data-restart="${c.slot}">⟲ Restart lap</button></td></tr>`;
     }
     return row;
   }).join('') || '<tr><td colspan="6" class="hint">No cars yet: drive a car with a transponder past the gate.</td></tr>';
-  $('trackHint').textContent = S.unident ? `Passes without a transponder: ${S.unident}` : '';
+  $('trackHint').textContent = S.unident ? `Crossings without a transponder: ${S.unident}` : '';
 }
 
 function renderCars() {
@@ -392,7 +399,7 @@ function renderIr(l) {
   $('irStat').className = 'wstat ' + (l.irId && ago < 2000 ? 'ok' : '');
   $('irStat').textContent = (!l.irId ? 'IR receiver: no transponder seen yet.'
     : `IR receiver: last transponder ${id}, ${ago < 1000 ? 'just now' : Math.round(ago / 1000) + ' s ago'}.`)
-    + (l.unident ? ` Passes without a transponder: ${l.unident}.` : '');
+    + (l.unident ? ` Crossings without a transponder: ${l.unident}.` : '');
 }
 
 // Band around idle where nothing triggers; the green marker leaving it = beam broken.
@@ -400,8 +407,8 @@ function renderIr(l) {
 // above 2·noise+50 noise can't trigger, below 0.7·depth a pass like the last one clears it with margin.
 function tuneAdvice(delta, l) {
   const lo = 2 * l.noise + 50, hi = Math.round(l.peak * 0.7);
-  if (delta >= l.peak) return `Sensitivity ${delta} misses passes like the last one (depth ${l.peak}). Use ${l.suggest}.`;
-  if (delta > hi) return `Sensitivity ${delta} works, but a shallower (faster) pass could be missed. ${l.suggest} is safer.`;
+  if (delta >= l.peak) return `Sensitivity ${delta} misses crossings like the last one (depth ${l.peak}). Use ${l.suggest}.`;
+  if (delta > hi) return `Sensitivity ${delta} works, but a shallower (faster) crossing could be missed. ${l.suggest} is safer.`;
   if (delta < lo) return `Sensitivity ${delta} is close to the noise (±${l.noise}): false triggers are likely. Use ${l.suggest}.`;
   return `Sensitivity ${delta} works. ${l.suggest} would leave more margin on both sides.`;
 }
@@ -451,7 +458,7 @@ function tick() {
     const who = car0 ? driverName(car0.driver) : '';
     const t0 = carCur(0);
     const time = t0 !== null ? fmt(t0) : '--.---';
-    const lap = t0 !== null ? 'Lap ' + ((car0 ? car0.laps : 0) + 1) : 'Waiting for start pass';
+    const lap = t0 !== null ? 'Lap ' + ((car0 ? car0.laps : 0) + 1) : 'Waiting for the first crossing';
     $('cur').textContent = time;
     $('state').textContent = lap + (who ? ' · ' + who : '');
     for (const td of document.querySelectorAll('#track td.now')) {
@@ -582,7 +589,6 @@ $('save').onclick = async () => {
 };
 
 $('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };
-$('raceBanner').onclick = () => showTab('Race');
 try { const t = sessionStorage.getItem('tab'); if (t && $('tab' + t)) showTab(t); } catch (e) { /* not kept */ }
 
 soundInit();

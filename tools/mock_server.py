@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 WEB = Path(__file__).resolve().parent.parent / "web"
-MAX_LAPS, MAX_DRIVERS, MAX_CARS, MAX_NAME = 200, 8, 8, 32
+MAX_LAPS, MAX_DRIVERS, MAX_CARS, MAX_NAME = 400, 8, 8, 32
 STATS_CAR = 0x100
 DEF_MIN_LAP, DEF_DELTA = 2000, 800
 RACE_COUNTDOWN_MS = 4000

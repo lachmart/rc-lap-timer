@@ -23,34 +23,21 @@
     return by;
   }
 
-  // When the race is decided, or null: the winner's finishing crossing.
+  // Laps race: the winner's finishing crossing (first car to complete race.laps), or null.
   function winnerAt(state, by) {
-    const race = state.race;
-    if (race.laps > 0) {
-      let at = null;
-      for (const laps of by.values()) {
-        if (laps.length >= race.laps) {
-          const t = laps[race.laps - 1][L.END];
-          if (at === null || t < at) at = t;
-        }
+    let at = null;
+    for (const laps of by.values()) {
+      if (laps.length >= state.race.laps) {
+        const t = laps[state.race.laps - 1][L.END];
+        if (at === null || t < at) at = t;
       }
-      return at;
     }
-    if (race.minutes > 0) {
-      const deadline = race.go + race.minutes * 60000;
-      let leader = null;                      // most laps by the deadline, earlier last crossing wins ties
-      for (const laps of by.values()) {
-        const done = laps.filter(l => l[L.END] <= deadline);
-        if (!done.length) continue;
-        const cand = { n: done.length, last: done[done.length - 1][L.END], laps };
-        if (!leader || cand.n > leader.n || (cand.n === leader.n && cand.last < leader.last)) leader = cand;
-      }
-      if (!leader) return null;
-      const after = leader.laps.find(l => l[L.END] > deadline);
-      return after ? after[L.END] : null;
-    }
-    return null;
+    return at;
   }
+
+  // A car that has started but hasn't crossed for this long after the race was decided is out (DNF),
+  // so a broken-down car doesn't keep the race from finishing.
+  const dnfAfterMs = row => Math.max(2 * (row.bestMs || 0), 30000);
 
   const isHeats = state => !state.multi && state.race.laps > 0 && (state.race.order || []).length > 0;
 
@@ -77,7 +64,8 @@
         finished: laps.length >= race.laps || i < race.heat,
       };
     });
-    const done = rows.filter(r => r.finished && r.laps === race.laps).sort((a, b) => a.totalMs - b.totalMs);
+    const done = rows.filter(r => r.finished && r.laps === race.laps)
+      .sort((a, b) => a.totalMs - b.totalMs || a.bestMs - b.bestMs);   // a tie goes to the better best lap
     const rest = rows.filter(r => !done.includes(r));
     const sorted = [...done, ...rest];
     const lead = done[0];
@@ -129,29 +117,39 @@
       return result;
     }
 
+    // Laps race: the leader finishes after race.laps, every other car at its next crossing.
+    // Time race: every car finishes at its own first crossing after the time is up (club rules).
+    // Ranked by laps, then by who crossed the line earlier; race time counts from "go".
     const by = lapsByCar(state);
-    const end = winnerAt(state, by);
-    result.finished = end !== null;
-    if (end !== null) result.finishMs = end - race.go;
+    const deadline = race.minutes > 0 ? race.go + race.minutes * 60000 : null;
+    const end = race.laps > 0 ? winnerAt(state, by) : null;
+    const cut = deadline ?? end;                 // finishing crossing: the first one at or after this
+    const decidedAt = end ?? (deadline !== null && nowMs >= deadline ? deadline : null);
+    result.finished = decidedAt !== null;
 
     for (const car of racers(state)) {
       let laps = by.get(car.slot);
       let finished = false;
-      if (end !== null) {                     // each car finishes at its first crossing from the winner's on
-        const k = laps.findIndex(l => l[L.END] >= end);
+      if (cut !== null) {
+        const k = laps.findIndex(l => l[L.END] >= cut);
         if (k >= 0) { laps = laps.slice(0, k + 1); finished = true; }
       }
-      const first = laps[0], last = laps[laps.length - 1];
-      result.rows.push({
+      const last = laps[laps.length - 1];
+      const row = {
         car: car.slot,
         driver: car.driver,
         laps: laps.length,
         started: laps.length > 0 || car.running,
         lastAt: last ? last[L.END] : null,
-        totalMs: first ? last[L.END] - (first[L.END] - first[L.MS]) : 0,
+        totalMs: last ? last[L.END] - race.go : 0,
         bestMs: laps.length ? Math.min(...laps.map(l => l[L.MS])) : 0,
         finished,
-      });
+        dnf: false,
+      };
+      if (decidedAt !== null && row.started && !finished) {
+        row.dnf = nowMs - Math.max(row.lastAt ?? race.go, decidedAt) > dnfAfterMs(row);
+      }
+      result.rows.push(row);
     }
 
     result.rows.sort((a, b) =>
@@ -166,7 +164,9 @@
       r.gapLaps = lead ? lead.laps - r.laps : 0;
       r.gapMs = i && lead && r.gapLaps === 0 && r.lastAt !== null ? r.lastAt - lead.lastAt : 0;
     });
-    result.allIn = result.finished && result.rows.every(r => r.finished || !r.started);
+    const winner = result.rows[0];
+    if (result.finished) result.finishMs = winner && winner.finished ? winner.lastAt - race.go : race.minutes * 60000;
+    result.allIn = result.finished && result.rows.every(r => r.finished || r.dnf || !r.started);
     return result;
   }
 
