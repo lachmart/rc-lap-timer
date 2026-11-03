@@ -92,6 +92,7 @@ class Timer:
         self.ir_id, self.ir_us, self.unident = 0, 0, 0
         self.laps = []                     # dicts: ms num car driver deleted precise end
         self.ignored = 0
+        self.forgotten = set()             # removed drivers, their stats are dropped (lapsForgetDriver)
 
     def changed(self):
         self.revision += 1
@@ -103,6 +104,7 @@ class Timer:
                 c.last_cross = c.prev_cross = 0
                 c.last_pass, c.num = None, 0
             self.laps, self.ignored, self.unident = [], 0, 0
+            self.forgotten = set()
             self.changed()
 
     def oldest_kept(self):
@@ -211,6 +213,8 @@ class Timer:
             if lap["deleted"]:
                 continue
             key = lap["driver"] or (STATS_CAR | lap["car"])
+            if key in self.forgotten:
+                continue
             s = by.setdefault(key, {"key": key, "count": 0, "best": 0, "total": 0})
             s["count"] += 1
             s["total"] += lap["ms"]
@@ -241,6 +245,7 @@ class Timer:
             if not any(d["id"] == did for d in self.drivers):
                 return False
             self.drivers = [d for d in self.drivers if d["id"] != did]
+            self.forgotten.add(did)
             for slot, c in self.cars.items():
                 if c.driver == did:
                     self.set_driver(slot, 0)
@@ -569,8 +574,8 @@ class Http(BaseHTTPRequestHandler):
         if p in routes:
             self.result(routes[p]())
         elif p == "/api/config":
-            timer.min_lap = min(max(num("minLap") or timer.min_lap, 300), 600000)
-            timer.delta = min(max(num("delta") or timer.delta, 50), 4000)
+            timer.min_lap = min(max(num("minLap") if "minLap" in q else timer.min_lap, 300), 600000)
+            timer.delta = min(max(num("delta") if "delta" in q else timer.delta, 50), 4000)
             self.result(True)
         elif p == "/api/wifi":
             ssid = q.get("ssid", "").strip()
