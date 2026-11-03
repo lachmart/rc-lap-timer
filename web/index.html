@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#121318">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#141a21">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>RC Lap Timer</title>
   <link rel="stylesheet" href="/style.css">
@@ -14,181 +14,205 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <h1>🏁 RC Lap Timer
-    <span class="hdr">
-      <span id="conn"><span class="dot" id="dot"></span><span id="ctxt">connecting</span></span>
-      <button class="icon" id="bigOpen" title="Big view, readable from a distance">⛶</button>
-    </span>
-  </h1>
+  <header class="top">
+    <h1><span class="flag" aria-hidden="true"></span>Lap Timer</h1>
+    <button class="pill" id="snd" aria-pressed="false" title="Beep on every lap">Beep</button>
+    <button class="pill" id="voice" aria-pressed="false" title="Read out lap times">Voice</button>
+    <span id="conn" title="Connection to the timer"><span class="dot" id="dot"></span><span id="ctxt">connecting</span></span>
+    <button class="icon" id="bigOpen" title="Big view, readable from a distance" aria-label="Big view">⛶</button>
+  </header>
 
-  <!-- race in progress -->
-  <div class="card" id="raceCard" hidden>
-    <div class="race-head"><span class="lbl" id="raceTitle">Race</span><span class="race-clock" id="raceClock"></span></div>
-    <div class="countdown" id="countdown" hidden></div>
-    <div class="warn" id="beamWarn3" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
-    <div id="heatNow" hidden>                 <!-- heats: the driver on the track, live -->
-      <div class="hn-who"><span id="hnName"></span><span id="hnLap"></span></div>
-      <div class="big" id="hnCur">--.---</div>
-      <div class="hn-stats">
-        <div><div class="lbl">Total</div><b id="hnTotal">–</b></div>
-        <div><div class="lbl">Last</div><b id="hnLast">–</b></div>
-        <div><div class="lbl">Best</div><b id="hnBest">–</b></div>
-        <div><div class="lbl" id="hnVs">Split</div><b id="hnSplit">–</b></div>
+  <!-- ================================================================ training -->
+  <main class="tab" id="tabTraining">
+    <button class="banner" id="raceBanner" hidden>Race running <span id="raceBannerTxt"></span> <b>Open</b></button>
+
+    <!-- one car, beam only -->
+    <section class="card hero" id="curCard">
+      <div class="state" id="state">Waiting for start pass</div>
+      <div class="big" id="cur">--.---</div>
+      <div class="warn" id="beamWarn" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
+      <div class="row">
+        <button id="undo" disabled title="A false trigger split the lap: remove that pass, the lap continues">↶ Undo pass</button>
+        <button id="restart" title="Drop the lap in progress, the next pass starts timing">⟲ Restart lap</button>
       </div>
-      <div class="hn-msg" id="hnMsg"></div>
-    </div>
-    <div class="hn-next" id="hnNext" hidden></div>
-    <table class="board standings">
-      <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
-      <tbody id="standings"></tbody>
-    </table>
-    <p class="hint" id="raceHint"></p>
-    <button class="wide r" id="raceAgain" hidden>↻ Race again</button>
-    <div class="row">
-      <button id="raceUndo" disabled title="A false trigger: remove the last pass, the lap continues (in heats also the handover it caused)">↶ Undo last pass</button>
-      <button id="raceStop">Back to training</button>
-    </div>
-  </div>
+    </section>
 
-  <!-- one car, beam only -->
-  <div class="card" id="curCard">
-    <div class="lbl" id="state">Waiting for start pass</div>
-    <div class="big" id="cur">--.---</div>
-    <div class="warn" id="beamWarn" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
-    <div class="row">
-      <button id="undo" disabled title="A false trigger split the lap: remove that pass, the lap continues">↶ Undo pass</button>
-      <button id="restart" title="Drop the lap in progress, the next pass starts timing">⟲ Restart lap</button>
-    </div>
-  </div>
+    <!-- several cars, training -->
+    <section class="card" id="trackCard" hidden>
+      <h2>On track</h2>
+      <div class="warn" id="beamWarn2" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
+      <table class="board track">
+        <thead><tr><th>Car</th><th>Lap</th><th>Now</th><th>Last</th><th>Best</th><th></th></tr></thead>
+        <tbody id="track"></tbody>
+      </table>
+      <p class="hint" id="trackHint"></p>
+    </section>
 
-  <!-- several cars, training -->
-  <div class="card" id="trackCard" hidden>
-    <div class="lbl">On track</div>
-    <div class="warn" id="beamWarn2" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
-    <table class="board track">
-      <thead><tr><th>Car</th><th>Lap</th><th>Now</th><th>Last</th><th>Best</th><th></th></tr></thead>
-      <tbody id="track"></tbody>
-    </table>
-    <p class="hint" id="trackHint"></p>
-  </div>
-
-  <div class="card" id="driversCard">
-    <div class="lbl" id="driversTitle">Driving now</div>
-    <div class="chips" id="chips"></div>
-    <div class="carDrivers" id="carDrivers"></div>
-    <details id="editDrivers"><summary>Edit drivers</summary>
-      <ul class="dlist" id="dlist"></ul>
-      <form class="add" id="addForm">
-        <input id="newName" maxlength="16" placeholder="Name" autocomplete="off" enterkeyhint="done">
-        <button>Add</button>
+    <section class="card" id="driversCard">
+      <div class="head"><h2 id="driversTitle">Who's driving</h2><button class="link" id="editDrivers" aria-pressed="false">Edit</button></div>
+      <div class="chips" id="chips"></div>
+      <form class="add" id="addForm" hidden>
+        <input id="newName" maxlength="16" placeholder="Driver name" autocomplete="off" enterkeyhint="done">
+        <button class="primary">Add</button>
+        <button type="button" id="addCancel">Cancel</button>
       </form>
-      <p class="hint" id="dmsg">Switching driver drops that car's lap in progress, its next pass starts the new driver's lap.</p>
-    </details>
-  </div>
+      <p class="hint" id="dmsg"></p>
+      <div class="carDrivers" id="carDrivers"></div>
+    </section>
 
-  <div class="row" id="lastBest">
-    <div class="card"><div class="lbl">Last</div><div class="mid" id="last">--</div><div class="lbl" id="lastd">&nbsp;</div></div>
-    <div class="card"><div class="lbl">Best</div><div class="mid best" id="best">--</div><div class="lbl" id="bestd">&nbsp;</div></div>
-  </div>
-
-  <div class="card" id="boardCard" hidden>
-    <div class="lbl">Leaderboard</div>
-    <table class="board">
-      <thead><tr><th></th><th>Driver</th><th>Best</th><th>Gap</th><th>Laps</th><th>Avg</th></tr></thead>
-      <tbody id="board"></tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <div class="lbl">Laps</div>
-    <ol id="laps"></ol>
-    <p class="hint" id="noLaps">No laps yet.</p>
-  </div>
-
-  <div class="row tools">
-    <button class="r" id="reset">New session</button>
-    <button id="snd">🔇 Beep</button>
-    <button id="voice">🔇 Voice</button>
-  </div>
-
-  <div class="card"><details id="raceSetup"><summary>Race</summary>
-    <div class="seg" id="raceKind">
-      <button type="button" data-kind="laps" class="on">Laps</button>
-      <button type="button" data-kind="minutes">Minutes</button>
+    <div class="row" id="lastBest">
+      <section class="card stat"><h2>Last</h2><div class="mid" id="last">--</div><div class="sub" id="lastd">&nbsp;</div></section>
+      <section class="card stat"><h2>Best</h2><div class="mid best" id="best">--</div><div class="sub" id="bestd">&nbsp;</div></section>
     </div>
-    <label><span id="raceLenLbl">Number of laps</span> <input id="raceLen" type="number" min="1" max="999" value="10"></label>
-    <div id="heatSetup" hidden>
-      <div class="lbl">Drivers in turn</div>
-      <div class="chips" id="heatOrder"></div>
-      <p class="hint">Tap to leave a driver out, tap again to add them at the end. Each driver drives the laps on their own;
-        the timer hands the car to the next one by itself, whose time starts at the car's next crossing.
-        Fastest total time wins.</p>
-    </div>
-    <button class="wide r" id="raceStart">Start race</button>
-    <p class="hint">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first crossing after "go" starts its timing.
-      The race ends when the leader completes the last lap (or crosses after the time is up); every other car finishes at its next crossing.</p>
-  </details></div>
 
-  <div class="card"><details id="carsCard"><summary>Cars <span class="sum" id="csum"></span></summary>
-    <label class="switch"><span>Several cars with IR transponders</span><input type="checkbox" id="multi"></label>
-    <div class="wstat" id="irStat"></div>
-    <ul class="cars" id="cars"></ul>
-    <p class="hint">A transponder seen at the gate for the first time is added here automatically. Give it a name and
-      assign a driver under <b>Drivers</b>. RiCino transponders show as #1B39, NE556 blink transponders as their rate in Hz.</p>
-  </details></div>
+    <section class="card" id="boardCard" hidden>
+      <h2>Leaderboard</h2>
+      <table class="board">
+        <thead><tr><th></th><th>Driver</th><th>Best</th><th>Gap</th><th>Laps</th><th>Avg</th></tr></thead>
+        <tbody id="board"></tbody>
+      </table>
+    </section>
 
-  <div class="card"><details id="sensorCard"><summary>Sensor <span class="sum" id="ssum"></span></summary>
-    <p class="lbl">ADC <b id="raw">0</b> · idle <b id="base">0</b> · beam <b id="beam">?</b></p>
-    <div class="bar" title="Grey band: no trigger. Marker outside the band = beam broken.">
-      <span id="band"></span><i id="mb"></i><i id="mr"></i>
-    </div>
-    <dl class="meter">
-      <div><dt>Noise</dt><dd id="noise">–</dd></div>
-      <div><dt>Pass depth</dt><dd id="peak">–</dd></div>
-      <div><dt>Suggested</dt><dd id="suggest">–</dd></div>
-    </dl>
-    <p class="hint" id="tuneHint">Drive (or wave a hand) through the beam once to measure how deep a pass goes.</p>
-    <button class="wide" id="useSuggest" hidden>Use suggested sensitivity</button>
+    <section class="card" id="lapsCard">
+      <h2>Laps</h2>
+      <ol id="laps"></ol>
+      <p class="hint" id="noLaps">No laps yet. The first pass starts the clock, every pass after it is a lap.</p>
+    </section>
 
-    <label>Min. lap time (s) <input id="minLap" type="number" step="0.1" min="0.3"></label>
-    <label>Sensitivity, ADC deviation <input id="delta" type="number" step="50" min="50" max="4000"></label>
-    <div class="row"><button id="save">Save</button><button id="calibrate">Calibrate idle</button></div>
-    <p class="hint">Calibrate with a clear beam aimed at the sensor. The blue LED on the board lights while the beam is broken. Discarded passes (shorter than min. lap time): <b id="ign">0</b>.</p>
-  </details></div>
+    <button class="wide danger" id="reset">New session</button>
+  </main>
 
-  <div class="card"><details id="wifiCard"><summary>Wi-Fi <span class="sum" id="wsum"></span></summary>
-    <div class="wstat" id="wstat"></div>
+  <!-- ================================================================ race -->
+  <main class="tab" id="tabRace" hidden>
+    <!-- race in progress -->
+    <section class="card" id="raceCard" hidden>
+      <div class="race-head"><h2 id="raceTitle">Race</h2><span class="race-clock" id="raceClock"></span></div>
+      <div class="countdown" id="countdown" hidden></div>
+      <div class="warn" id="beamWarn3" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
+      <div id="heatNow" hidden>                 <!-- heats: the driver on the track, live -->
+        <div class="hn-who"><span id="hnName"></span><span id="hnLap"></span></div>
+        <div class="big" id="hnCur">--.---</div>
+        <div class="hn-stats">
+          <div><div class="sub">Total</div><b id="hnTotal">–</b></div>
+          <div><div class="sub">Last</div><b id="hnLast">–</b></div>
+          <div><div class="sub">Best</div><b id="hnBest">–</b></div>
+          <div><div class="sub" id="hnVs">Split</div><b id="hnSplit">–</b></div>
+        </div>
+        <div class="hn-msg" id="hnMsg"></div>
+      </div>
+      <div class="hn-next" id="hnNext" hidden></div>
+      <table class="board standings">
+        <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
+        <tbody id="standings"></tbody>
+      </table>
+      <p class="hint" id="raceHint"></p>
+      <button class="wide primary" id="raceAgain" hidden>↻ Race again</button>
+      <div class="row">
+        <button id="raceUndo" disabled title="A false trigger: remove the last pass, the lap continues (in heats also the handover it caused)">↶ Undo last pass</button>
+        <button id="raceStop">Back to training</button>
+      </div>
+    </section>
 
-    <button class="wide" id="scan">Scan networks</button>
-    <ul class="nets" id="nets" hidden></ul>
+    <!-- race setup -->
+    <section class="card" id="raceSetup">
+      <h2>New race</h2>
+      <div class="seg" id="raceKind">
+        <button type="button" data-kind="laps" class="on">Laps</button>
+        <button type="button" data-kind="minutes">Minutes</button>
+      </div>
+      <div class="stepper">
+        <span id="raceLenLbl">Number of laps</span>
+        <button type="button" class="step" data-step="-1" aria-label="Fewer">−</button>
+        <input id="raceLen" type="number" inputmode="numeric" min="1" max="999" value="10">
+        <button type="button" class="step" data-step="1" aria-label="More">+</button>
+      </div>
+      <div id="heatSetup" hidden>
+        <h3>Drivers in turn</h3>
+        <div class="chips" id="heatOrder"></div>
+        <p class="hint">Tap to leave a driver out, tap again to put them at the end. After a driver's last lap the
+          timer hands the car to the next one; their time starts at the car's next crossing. Fastest total wins.</p>
+      </div>
+      <button class="wide primary go" id="raceStart">Start race</button>
+      <p class="hint" id="raceRules">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first
+        crossing after "go" starts its timing. The race ends when the leader completes the last lap (or crosses after
+        the time is up); every other car finishes at its next crossing.</p>
+    </section>
+  </main>
 
-    <form id="wifiForm">
-      <label>Home network <input id="ssid" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-      <label>Password <input id="pass" type="password" autocomplete="off"></label>
-      <div class="row"><button>Connect</button><button type="button" id="wifiForget">Forget</button></div>
-    </form>
+  <!-- ================================================================ settings -->
+  <main class="tab" id="tabSettings" hidden>
+    <section class="card" id="carsCard">
+      <h2>Cars <span class="sum" id="csum"></span></h2>
+      <label class="switch"><span>Several cars with IR transponders</span><input type="checkbox" id="multi"></label>
+      <div class="wstat" id="irStat"></div>
+      <ul class="cars" id="cars"></ul>
+      <p class="hint">A transponder seen at the gate for the first time is added here automatically. Give it a name and
+        pick its driver on the Training tab. RiCino transponders show as #1B39, NE556 blink transponders as their rate in Hz.</p>
+    </section>
 
-    <p class="hint">Join your home Wi-Fi so the phone can stay on it with internet; the timer is then at
-      <b>laptimer.local</b>. The RC_Lap_Timer network always runs too, and changes here don't restart the timer.
-      Out of range, the timer retries every 30 s while no phone is on RC_Lap_Timer.
-      At the track, a phone hotspot works as the home network.</p>
-  </details></div>
+    <section class="card" id="sensorCard">
+      <h2>Sensor <span class="sum" id="ssum"></span></h2>
+      <p class="sub">ADC <b id="raw">0</b>, idle <b id="base">0</b>, beam <b id="beam">?</b></p>
+      <div class="bar" title="Grey band: no trigger. Marker outside the band = beam broken.">
+        <span id="band"></span><i id="mb"></i><i id="mr"></i>
+      </div>
+      <dl class="meter">
+        <div><dt>Noise</dt><dd id="noise">–</dd></div>
+        <div><dt>Pass depth</dt><dd id="peak">–</dd></div>
+        <div><dt>Suggested</dt><dd id="suggest">–</dd></div>
+      </dl>
+      <p class="hint" id="tuneHint">Drive (or wave a hand) through the beam once to measure how deep a pass goes.</p>
+      <button class="wide" id="useSuggest" hidden>Use suggested sensitivity</button>
 
-  <div class="card"><details id="usbCard"><summary>USB / ZRound <span class="sum" id="usum"></span></summary>
-    <label class="switch"><span>ZRound decoder on the USB port</span><input type="checkbox" id="zround"></label>
-    <div class="wstat" id="zstat"></div>
-    <p class="hint">Connect the timer to the laptop with ZRound by USB and choose the RiCino decoder, 19200 baud.
-      ZRound then runs the races itself; this app keeps showing the passes. Only transponder cars are sent.
-      While this is on, the USB port has no debug log.</p>
-  </details></div>
+      <label>Min. lap time (s) <input id="minLap" type="number" step="0.1" min="0.3"></label>
+      <label>Sensitivity <input id="delta" type="number" step="50" min="50" max="4000"></label>
+      <div class="row"><button id="save">Save</button><button id="calibrate">Calibrate idle</button></div>
+      <p class="hint">Calibrate with a clear beam aimed at the sensor. The blue LED on the board lights while the beam is
+        broken. Discarded passes (shorter than the min. lap time): <b id="ign">0</b>.</p>
+    </section>
+
+    <section class="card" id="wifiCard">
+      <h2>Wi-Fi <span class="sum" id="wsum"></span></h2>
+      <div class="wstat" id="wstat"></div>
+
+      <button class="wide" id="scan">Scan networks</button>
+      <ul class="nets" id="nets" hidden></ul>
+
+      <form id="wifiForm">
+        <label>Home network <input id="ssid" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label>Password <input id="pass" type="password" autocomplete="off"></label>
+        <div class="row"><button>Connect</button><button type="button" id="wifiForget">Forget</button></div>
+      </form>
+
+      <p class="hint">Join your home Wi-Fi so the phone can stay on it with internet; the timer is then at
+        <b>laptimer.local</b>. The RC_Lap_Timer network always runs too, and changes here don't restart the timer.
+        Out of range, the timer retries every 30 s while no phone is on RC_Lap_Timer.
+        At the track, a phone hotspot works as the home network.</p>
+    </section>
+
+    <section class="card" id="usbCard">
+      <h2>USB / ZRound <span class="sum" id="usum"></span></h2>
+      <label class="switch"><span>ZRound decoder on the USB port</span><input type="checkbox" id="zround"></label>
+      <div class="wstat" id="zstat"></div>
+      <p class="hint">Connect the timer to the laptop with ZRound by USB and choose the RiCino decoder, 19200 baud.
+        ZRound then runs the races itself; this app keeps showing the passes. Only transponder cars are sent.
+        While this is on, the USB port has no debug log.</p>
+    </section>
+  </main>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="Training" class="on">Training</button>
+    <button data-tab="Race">Race<span class="live" id="raceLive" hidden></span></button>
+    <button data-tab="Settings">Settings<span class="alert" id="setAlert" hidden></span></button>
+  </nav>
 
   <div class="bigview" id="bigView" hidden>
     <div id="bvSingle">
       <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
       <div class="bv-cur" id="bvCur">--.---</div>
       <div class="bv-row">
-        <div><div class="lbl">Last</div><div class="bv-mid" id="bvLast">--</div><div class="lbl" id="bvLastd"></div></div>
-        <div><div class="lbl">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="lbl" id="bvBestd"></div></div>
+        <div><div class="sub">Last</div><div class="bv-mid" id="bvLast">--</div><div class="sub" id="bvLastd"></div></div>
+        <div><div class="sub">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="sub" id="bvBestd"></div></div>
       </div>
     </div>
     <div id="bvMulti" hidden>

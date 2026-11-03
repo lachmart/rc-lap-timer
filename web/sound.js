@@ -2,7 +2,11 @@
 
 let beepOn = false, voiceOn = false, ac = null;
 
-function setToggle(btn, on, label) { btn.textContent = (on ? '🔊 ' : '🔇 ') + label; }
+function setToggle(btn, on, label) {
+  btn.textContent = label;
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', on);
+}
 
 // Remembered per phone. Browser storage can be unavailable (private mode), then it just isn't kept.
 const prefs = {

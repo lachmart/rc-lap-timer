@@ -25,7 +25,7 @@ function renderWifi() {
   }[S.sta] || ['', '', ''];
   $('wstat').className = 'wstat ' + cls;
   $('wstat').innerHTML = text;
-  $('wsum').textContent = sum ? '· ' + sum : '';
+  $('wsum').textContent = sum;
   $('wifiForget').hidden = !S.ssid;
   renderBars();
   updatePassHint();

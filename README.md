@@ -125,10 +125,14 @@ holds the beam broken.
    (captive portal). If it doesn't, open `http://192.168.4.1`.
 3. The first pass starts timing, every following pass records a lap.
 
+The app has three tabs at the bottom: **Training** (lap timing, drivers, leaderboard, laps), **Race**
+(set up and run races; it opens by itself when a race starts) and **Settings** (cars, sensor, Wi-Fi, USB).
+**Beep** and **Voice** at the top switch the lap sound and the spoken lap times; ⛶ opens the big view.
+
 ### Drivers and leaderboard
 
-Add drivers under **Edit drivers** (up to 8, names are saved). Tap a name under **Driving now** when
-the controller changes hands. Laps are recorded for that driver and the **Leaderboard** ranks drivers
+Under **Who's driving**, tap **+ Add driver** (up to 8, names are saved); **Edit** lets you remove one.
+Tap a name when the controller changes hands. Laps are recorded for that driver and the **Leaderboard** ranks drivers
 by best lap, with gap, lap count and average. Switching driver drops the lap in progress; the next pass
 starts the new driver's lap. **New session** clears laps and the leaderboard, drivers stay.
 
@@ -136,10 +140,10 @@ Without any drivers it works as a plain lap timer.
 
 ### Several cars
 
-In the **Cars** section switch on **Several cars with IR transponders**. Every transponder is learned
+In **Settings → Cars** switch on **Several cars with IR transponders**. Every transponder is learned
 automatically the first time it passes the gate and shows up as a car (`#1001` for RiCino ids, `465 Hz` for
-NE556 blink transponders). Give it a name there, and pick who drives it under **Drivers** (one dropdown per
-car; a driver drives one car at a time). The **On track** table shows each car's lap, current time, last and
+NE556 blink transponders). Give it a name there, and pick who drives it on the Training tab under **Drivers → Who drives which
+car** (a driver drives one car at a time). The **On track** table shows each car's lap, current time, last and
 best lap; **⋯** on a row has Undo pass / Restart lap for that car.
 
 The laser gives the precise time; the transponder only tells which car it was. A pass the beam didn't see
@@ -148,21 +152,21 @@ transponder near (a person, a car without one) are counted as "passes without a 
 
 ### Races
 
-Open **Race**, choose a number of laps or minutes and **Start race**. The session is cleared and a
+On the **Race** tab choose a number of laps or minutes and **Start race**. The session is cleared and a
 countdown runs (3, 2, 1, go, also by voice). Crossings before "go" are ignored; each car's first crossing
 after "go" starts its timing. Standings: more laps first, then whoever crossed the line earlier. The race
 ends when the leader completes the last lap (or, in a time race, crosses the line after the time is up);
 every other car finishes at its next crossing (🏁). **Stop race** / **Back to training** returns to
 training, the laps stay. Undo, join and delete also work in a race; the standings follow.
 
-**Heats (one car, drivers in turn):** with one car and a laps race, **Race** shows the drivers in turn; tap
+**Heats (one car, drivers in turn):** with one car and a laps race, the Race tab shows the drivers in turn; tap
 to leave one out or change the order. Each driver drives the laps on their own: after a driver's last lap
 the timer hands the car to the next one by itself (no tap needed), whose time starts at the car's next
 crossing, so there is one untimed lap to hand over the transmitter. Fastest total time wins.
 During heats the race card shows the driver on the track with the running lap and heat total to the
 millisecond, last/best lap, the split against the fastest heat so far after the same number of laps, how
 many laps are left, and who is next; on the final lap the next driver is told to get ready (also by voice).
-**↶ Remove last time** on the race card (one car) undoes the last pass, e.g. a false trigger: the lap
+**↶ Undo last pass** on the race card (one car) undoes the last pass, e.g. a false trigger: the lap
 continues from the pass before. If that pass ended a heat, the handover is undone too and the car is back
 with the previous driver.
 
@@ -197,7 +201,7 @@ several cars; the countdown and standings in a race. Tap to close.
 
 ### Sensor and tuning
 
-The **Sensor** section shows the live ADC value with the no-trigger band around idle (helps with
+**Settings → Sensor** shows the live ADC value with the no-trigger band around idle (helps with
 aiming the laser), calibration, minimum lap time and sensitivity. Settings are saved to flash.
 
 To find the right sensitivity, drive (or wave a hand) through the beam once. The section then shows

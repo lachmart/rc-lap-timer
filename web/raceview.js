@@ -21,6 +21,8 @@ function renderRace() {
   if (!racing()) return null;
   const r = Race.standings(S, serverNow());
   $('standLast').textContent = r.heats ? 'Total' : 'Last';
+  $('standings').parentElement.hidden = r.phase === 'countdown';
+  queueMicrotask(() => { $('raceBannerTxt').textContent = $('raceTitle').textContent; });
   renderRaceUndo();
   if (r.heats) return renderHeats(r);
   $('heatNow').hidden = $('hnNext').hidden = true;
@@ -47,18 +49,11 @@ function renderRace() {
   return r;
 }
 
-// One car: undo the last pass from the race card. It names what it removes: the last measured lap
-// (also when that lap ended a heat and the car was handed over), or the start pass.
+// One car: undo the last pass from the race card (in heats also the handover it caused).
 function renderRaceUndo() {
   const car0 = carBySlot(0);
   $('raceUndo').hidden = multi();
-  if (multi() || !car0) return;
-  const last = countedLaps(0).pop();
-  const t0 = carCur(0);
-  const lapPass = last && (!car0.running || (t0 !== null && Math.abs(serverNow() - t0 - last[L.END]) < 100));
-  $('raceUndo').disabled = !car0.canUndo;
-  $('raceUndo').textContent = !car0.canUndo ? '↶ Undo last pass'
-    : lapPass ? `↶ Remove last time ${fmt(last[L.MS])}` : '↶ Undo start pass';
+  $('raceUndo').disabled = !(car0 && car0.canUndo);
 }
 
 // Heats: one car, the drivers in turn. The card shows who drives (live lap and total to the ms),
@@ -251,6 +246,7 @@ const heatOrder = () => !heatsPossible() ? []
 
 function renderHeatOrder() {
   $('heatSetup').hidden = !heatsPossible();
+  $('raceRules').hidden = heatOrder().length > 0;     // the several-cars rules don't apply to heats
   if (!heatsPossible()) return;
   const order = heatOrder();
   const rest = S.drivers.filter(d => !order.includes(d.id));
@@ -307,8 +303,14 @@ function raceViewInit() {
     unlockAudio();
     api('race/start', params, 'Start the same race again? These results are cleared.');
   };
-  $('raceStop').onclick = () => {
+  $('raceStop').onclick = async () => {
     const done = $('raceStop').textContent === 'Back to training';
-    api('race/stop', {}, done ? null : 'Stop the race? The laps stay.');
+    if (await api('race/stop', {}, done ? null : 'Stop the race? The laps stay.')) showTab('Training');
+  };
+  $('raceSetup').onclick = e => {                     // − / + around the race length
+    const step = +(e.target.dataset.step || 0);
+    if (!step) return;
+    const max = raceKind === 'laps' ? 999 : 600;
+    $('raceLen').value = Math.min(max, Math.max(1, Math.round(+$('raceLen').value || 0) + step));
   };
 }

@@ -111,54 +111,93 @@ function joinSource(i) {
 
 // ---------------------------------------------------------------- rendering
 function conn(state) {
-  const [color, text] = { ws: ['var(--ok)', 'live'], poll: ['var(--gold)', 'fallback mode'], off: ['var(--acc)', 'offline'] }[state];
+  const [color, text] = { ws: ['var(--pb)', 'live'], poll: ['var(--flag)', 'polling'], off: ['var(--stop)', 'offline'] }[state];
   $('dot').style.background = color;
   $('ctxt').textContent = text;
 }
 
 function flash(isBest) {
-  for (const [id, base] of [['curCard', 'card'], ['trackCard', 'card'], ['raceCard', 'card'], ['bigView', 'bigview']]) {
+  for (const id of ['curCard', 'trackCard', 'raceCard', 'bigView']) {
     const c = $(id);
-    c.className = base;
+    c.classList.remove('flash', 'b');
     void c.offsetWidth;                                // restart the animation
-    c.className = base + ' flash' + (isBest ? ' b' : '');
+    c.classList.add('flash');
+    if (isBest) c.classList.add('b');
   }
 }
 
 const racing = () => S && S.race.state !== 'off';
 
+// ---------------------------------------------------------------- tabs
+// Training (default), Race (setup or the running race) and Settings. The laps list follows the
+// race onto its tab, so laps can be fixed there too.
+let tab = 'Training';
+let wasRacing = null;  // race state in the previous state message, to open the Race tab when one starts
+
+function showTab(name) {
+  tab = name;
+  for (const t of ['Training', 'Race', 'Settings']) $('tab' + t).hidden = t !== name;
+  for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === name);
+  placeLaps();
+  try { sessionStorage.setItem('tab', name); } catch (e) { /* not kept */ }
+  window.scrollTo(0, 0);
+}
+
+function placeLaps() {
+  const inRace = tab === 'Race' && racing();
+  const home = inRace ? $('tabRace') : $('tabTraining');
+  if ($('lapsCard').parentElement !== home) home.insertBefore($('lapsCard'), inRace ? null : $('reset'));
+}
+
 function renderLayout() {
   const m = multi(), r = racing();
   $('raceCard').hidden = !r;
+  $('raceSetup').hidden = r;
   $('curCard').hidden = r || m;
   $('trackCard').hidden = r || !m;
   $('lastBest').hidden = m || r;
-  $('driversTitle').textContent = m ? 'Drivers' : 'Driving now';
-  $('raceSetup').parentElement.hidden = r;
+  $('raceBanner').hidden = $('raceLive').hidden = !r;
+  $('driversCard').hidden = $('reset').hidden = r;     // in a race the race decides who drives
+  $('driversTitle').textContent = m ? 'Drivers' : 'Who\'s driving';
+  if (wasRacing !== null && r && !wasRacing) showTab('Race');   // a race started, here or on another phone
+  wasRacing = r;
+  placeLaps();
 }
+
+// Drivers as chips. One car: tap a name to put them on the car. "+ Add driver" opens a name field
+// in place; Edit turns the chips into remove buttons.
+let editingDrivers = false;
 
 function renderDrivers() {
   const m = multi();
   const car0 = carBySlot(0);
-  $('chips').hidden = m;
-  $('chips').innerHTML = S.drivers.length
-    ? S.drivers.map(d => `<button class="chip${car0 && d.id === car0.driver ? ' on' : ''}" data-id="${d.id}">${esc(d.name)}</button>`).join('')
-    : '<span class="hint">Nobody yet. Add drivers under Edit drivers to get a leaderboard.</span>';
+  if (!S.drivers.length) editingDrivers = false;
+  $('driversCard').classList.toggle('editing', editingDrivers);
+  $('editDrivers').hidden = !S.drivers.length;
+  $('editDrivers').textContent = editingDrivers ? 'Done' : 'Edit';
+  $('editDrivers').setAttribute('aria-pressed', editingDrivers);
+  const canAdd = S.drivers.length < MAX_DRIVERS && $('addForm').hidden;
+  $('chips').innerHTML = S.drivers.map(d => {
+    const on = !m && car0 && d.id === car0.driver;
+    return `<button class="chip${on ? ' on' : ''}" data-id="${d.id}"${editingDrivers ? ` aria-label="Remove ${esc(d.name)}"` : ''}>`
+      + `${esc(d.name)}${editingDrivers ? '<span class="rm" aria-hidden="true">✕</span>' : ''}</button>`;
+  }).join('') + (canAdd && !editingDrivers ? '<button class="chip add" data-add="1">+ Add driver</button>' : '');
+  if (editingDrivers) $('dmsg').textContent = 'Tap a name to remove that driver. Their laps stay.';
+  else if ($('dmsg').textContent.startsWith('Tap a name')) $('dmsg').textContent = '';
+  if (!S.drivers.length && $('addForm').hidden) {
+    $('dmsg').textContent = m ? 'Add drivers, then pick who drives which car.' : 'Add the drivers to time each of them separately.';
+  }
 
   // several cars: who drives which car (a driver drives one car at a time)
   $('carDrivers').hidden = !m;
   const cars = S.cars.filter(c => c.slot > 0);
   $('carDrivers').innerHTML = !m ? '' : cars.length
-    ? cars.map(c => `<label>${esc(carLabel(c))}
+    ? '<h3>Who drives which car</h3>' + cars.map(c => `<label>${esc(carLabel(c))}
         <select data-car="${c.slot}">
-          <option value="0">–</option>
+          <option value="0">Nobody</option>
           ${S.drivers.map(d => `<option value="${d.id}"${d.id === c.driver ? ' selected' : ''}>${esc(d.name)}</option>`).join('')}
         </select></label>`).join('')
     : '<p class="hint">No cars yet: drive a car with a transponder past the gate.</p>';
-
-  $('dlist').innerHTML = S.drivers
-    .map(d => `<li><span>${esc(d.name)}</span><button data-id="${d.id}" title="Remove">✕</button></li>`).join('');
-  $('addForm').hidden = S.drivers.length >= MAX_DRIVERS;
 }
 
 function renderBoard() {
@@ -242,7 +281,7 @@ function renderTrack() {
 function renderCars() {
   $('multi').checked = !!S.multi;
   const cars = S.cars.filter(c => c.slot > 0);
-  $('csum').textContent = S.multi ? `· ${cars.length} car${cars.length === 1 ? '' : 's'}` : '';
+  $('csum').textContent = S.multi ? `${cars.length} car${cars.length === 1 ? '' : 's'}` : 'one car';
   if ($('cars').contains(document.activeElement)) return;   // don't rebuild while a name is being typed
   $('cars').innerHTML = cars.map(c => `<li>
       <span class="tx">${txLabel(c.tx)}</span>
@@ -253,7 +292,7 @@ function renderCars() {
 function renderUsb() {
   const z = S.zround;
   $('zround').checked = z.on;
-  $('usum').textContent = z.on ? (z.racing ? '· ZRound racing' : z.connected ? '· ZRound connected' : '· waiting for ZRound') : '';
+  $('usum').textContent = z.on ? (z.racing ? 'ZRound racing' : z.connected ? 'ZRound connected' : 'waiting for ZRound') : '';
   $('zstat').className = 'wstat ' + (z.on ? (z.connected ? 'ok' : 'busy') : '');
   $('zstat').textContent = !z.on ? 'USB port: debug log (115200 baud).'
     : z.racing ? 'ZRound is running a race, passings are sent.'
@@ -383,7 +422,8 @@ function renderBeamWarning(broken) {
     $(id).hidden = !blocked;
     if (blocked) (id === 'bvWarn' ? $(id) : $(id).firstElementChild).textContent = msg;
   }
-  $('ssum').textContent = blocked ? '· beam blocked' : '';
+  $('ssum').textContent = blocked ? 'beam blocked' : '';
+  $('setAlert').hidden = !blocked;
 }
 
 // ---------------------------------------------------------------- every frame
@@ -461,19 +501,36 @@ $('track').onclick = e => {
 };
 
 $('chips').onclick = e => {
-  const id = e.target.dataset.id;
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.add) { openAddDriver(); return; }
+  const id = +b.dataset.id;
+  if (editingDrivers) { api('driver/remove', { id }, `Remove ${driverName(id)}? Their laps stay in the list.`); return; }
   const car0 = carBySlot(0);
-  if (id && car0 && +id !== car0.driver) api('driver/select', { id, car: 0 });
+  if (!multi() && car0 && id !== car0.driver) {
+    api('driver/select', { id, car: 0 });
+    $('dmsg').textContent = car0.running ? `${driverName(id)} is driving. Their lap starts at the next pass.` : '';
+  }
 };
+
+$('editDrivers').onclick = () => { editingDrivers = !editingDrivers; closeAddDriver(); };
+
+function openAddDriver() {
+  $('addForm').hidden = false;
+  $('dmsg').textContent = '';
+  renderDrivers();
+  $('newName').focus();
+}
+function closeAddDriver() {
+  $('addForm').hidden = true;
+  $('newName').value = '';
+  renderDrivers();
+}
+$('addCancel').onclick = closeAddDriver;
 
 $('carDrivers').onchange = e => {
   const sel = e.target.closest('select');
   if (sel) api('driver/select', { id: sel.value, car: sel.dataset.car });
-};
-
-$('dlist').onclick = e => {
-  const id = e.target.dataset.id;
-  if (id) api('driver/remove', { id }, `Remove ${driverName(+id)}? Their laps stay in the list.`);
 };
 
 $('addForm').onsubmit = async e => {
@@ -481,8 +538,8 @@ $('addForm').onsubmit = async e => {
   const name = $('newName').value.trim();
   if (!name) return;
   if (await api('driver/add', { name })) {
-    $('newName').value = '';
-    $('dmsg').textContent = 'Switching driver drops that car\'s lap in progress, its next pass starts the new driver\'s lap.';
+    $('dmsg').textContent = '';
+    closeAddDriver();
   } else {
     $('dmsg').textContent = `Couldn't add "${name}": the name is taken or there are already ${MAX_DRIVERS} drivers.`;
   }
@@ -504,6 +561,10 @@ $('save').onclick = async () => {
   await api('config', { minLap: Math.round($('minLap').value * 1000), delta: $('delta').value });
   cfgLoaded = false;
 };
+
+$('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };
+$('raceBanner').onclick = () => showTab('Race');
+try { const t = sessionStorage.getItem('tab'); if (t && $('tab' + t)) showTab(t); } catch (e) { /* not kept */ }
 
 soundInit();
 wifiInit();

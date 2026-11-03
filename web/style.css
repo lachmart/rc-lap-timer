@@ -1,176 +1,241 @@
+/* RC Lap Timer. Night pit lane: slate panels, timing-screen colours with fixed meanings
+   (purple = fastest of the session, green = personal best, yellow = flag / attention, red = stop / problem).
+   Digits in DIN where the phone has it (iOS: DIN Alternate, Windows: Bahnschrift), served offline from the ESP32. */
 :root {
-  --bg: #121318; --card: #1d1f27; --line: #2c2f3a; --fg: #eef0f5;
-  --mut: #8b90a0; --acc: #ff4a5a; --ok: #3ddc84; --gold: #ffd54a;
-  --mono: ui-monospace, Menlo, monospace;
+  --bg: #141a21; --card: #1c242e; --raise: #25303c; --line: #2c3845; --fg: #e8eef4; --mut: #8b99aa;
+  --best: #b07cff; --pb: #35d483; --flag: #ffcc33; --stop: #ff5a52;
+  --ink: #0e1318;                                         /* text on light buttons */
+  --num: "DIN Alternate", "DIN Condensed", Bahnschrift, "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --navh: 64px;
 }
 * { box-sizing: border-box }
 [hidden] { display: none !important }
-body { margin: auto; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif; padding: 16px; max-width: 520px }
-h1 { font-size: 18px; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center }
-.hdr { display: flex; align-items: center; gap: 8px }
-button.icon { background: none; padding: 2px 6px; font-size: 20px; line-height: 1; color: var(--mut) }
-.warn { background: #3a1d22; color: #ffb3bb; border-radius: 8px; padding: 8px 10px; font-size: 14px; margin: 0 0 10px }
+html { -webkit-text-size-adjust: 100% }
+body { margin: 0 auto; max-width: 540px; background: var(--bg); color: var(--fg); font: 16px/1.4 system-ui, -apple-system, sans-serif;
+       padding: 0 16px calc(var(--navh) + 24px + env(safe-area-inset-bottom)) }
+:focus-visible { outline: 2px solid var(--flag); outline-offset: 2px }
 
-#conn { font-size: 12px; color: var(--mut); display: flex; gap: 6px; align-items: center }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--acc); display: inline-block }
+/* ---------------------------------------------------------------- header */
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; margin: 0 -16px 12px;
+       padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: rgba(20, 26, 33, .94); backdrop-filter: blur(8px);
+       border-bottom: 1px solid var(--line) }
+h1 { font: 700 19px var(--num); letter-spacing: .02em; margin: 0 auto 0 0; display: flex; align-items: center; gap: 8px }
+.flag { width: 18px; height: 18px; border-radius: 3px; flex: none;          /* a chequered flag, drawn */
+        background: conic-gradient(var(--fg) 25%, var(--bg) 0 50%, var(--fg) 0 75%, var(--bg) 0) 0 0 / 9px 9px }
+.pill { padding: 6px 11px; border-radius: 999px; font-size: 13px; background: var(--card); color: var(--mut); border: 1px solid var(--line); min-height: 0 }
+.pill.on { color: var(--fg); border-color: var(--pb); background: rgba(53, 212, 131, .12) }
+#conn { font-size: 12px; color: var(--mut); display: flex; gap: 5px; align-items: center }
+#ctxt { max-width: 4.5em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--stop); display: inline-block; flex: none }
+button.icon { background: none; padding: 4px 2px 4px 6px; font-size: 22px; line-height: 1; color: var(--mut); min-height: 0 }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px }
-.lbl { color: var(--mut); font-size: 12px; text-transform: uppercase; letter-spacing: .06em }
-.big { font: 700 56px var(--mono); text-align: center; margin: 4px 0 10px; font-variant-numeric: tabular-nums }
-.mid { font: 700 26px var(--mono) }
-.best { color: var(--gold) }
-.row { display: flex; gap: 12px }
-.row > * { flex: 1 }
-.row .card { text-align: center }
-.tools { margin-bottom: 12px }
-.tools button { padding: 10px 6px; white-space: nowrap }
+/* ---------------------------------------------------------------- tab bar */
+.tabs { position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+        background: rgba(20, 26, 33, .97); backdrop-filter: blur(8px); border-top: 1px solid var(--line);
+        padding: 6px max(8px, calc(50% - 262px)) calc(6px + env(safe-area-inset-bottom)) }
+.tabs button { flex: 1; background: none; color: var(--mut); font: 600 15px system-ui, sans-serif; height: calc(var(--navh) - 12px);
+               border-radius: 10px; position: relative }
+.tabs button.on { color: var(--fg); background: var(--card) }
+.tabs button.on::after { content: ""; position: absolute; left: 30%; right: 30%; bottom: 5px; height: 3px; border-radius: 2px; background: var(--fg) }
+.live, .alert { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: 2px }
+.live { background: var(--flag); animation: pulse 1.2s infinite }
+.alert { background: var(--stop) }
+@keyframes pulse { 50% { opacity: .25 } }
+@media (prefers-reduced-motion: reduce) { .live { animation: none } }
+
+/* ---------------------------------------------------------------- building blocks */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px }
+h2 { font: 600 14px system-ui, sans-serif; color: var(--mut); margin: 0 0 8px; letter-spacing: .01em }
+h3 { font: 600 14px system-ui, sans-serif; color: var(--mut); margin: 14px 0 4px }
+.head { display: flex; justify-content: space-between; align-items: baseline }
+.head h2 { margin: 0 }
+.sub { color: var(--mut); font-size: 13px }
+.hint { color: var(--mut); font-size: 13px; margin: 8px 0 0 }
+.hint:empty { display: none }
+.sum { color: var(--mut); font-weight: 400; margin-left: 4px }
+.row { display: flex; gap: 10px; align-items: stretch }
+.row > * { flex: 1 1 0; min-width: 0 }
+.big { font: 700 64px/1 var(--num); text-align: center; margin: 6px 0 14px; font-variant-numeric: tabular-nums; letter-spacing: .01em }
+.mid { font: 700 30px/1.1 var(--num); font-variant-numeric: tabular-nums }
+.best { color: var(--best) }
+a { color: var(--pb) }
+
+button { background: var(--raise); color: var(--fg); border: 0; border-radius: 10px; padding: 10px 14px; min-height: 44px;
+         font: 500 15px system-ui, sans-serif; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+button:disabled { opacity: .35; cursor: default }
+button:active:not(:disabled) { filter: brightness(1.15) }
+button.primary, button.r.primary { background: var(--fg); color: var(--ink); font-weight: 700 }
+button.danger { background: none; border: 1px solid rgba(255, 90, 82, .5); color: var(--stop) }
+button.r { background: rgba(255, 90, 82, .16); color: #ffb0ab }
+button.wide { width: 100%; display: block }
+button.link { background: none; color: var(--mut); min-height: 0; padding: 4px 0 4px 8px; font-size: 14px }
+button.link[aria-pressed="true"] { color: var(--fg); font-weight: 700 }
+button.go { font: 700 20px var(--num); letter-spacing: .04em; min-height: 56px; margin-top: 14px }
+
+input { width: 140px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 16px }
+label { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; gap: 8px }
+.switch { cursor: pointer }
+.switch input { width: 22px; height: 22px; accent-color: var(--pb) }
+
+.warn { background: rgba(255, 90, 82, .14); border: 1px solid rgba(255, 90, 82, .35); color: #ffc2bd; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 0 0 12px }
+.warn .calnow { margin-top: 8px; width: 100%; background: var(--fg); color: var(--ink); font-weight: 700 }
+
+.banner { width: 100%; display: flex; gap: 6px; align-items: center; margin-bottom: 12px; background: rgba(255, 204, 51, .14);
+          border: 1px solid rgba(255, 204, 51, .4); color: var(--flag); font-weight: 600 }
+.banner b { margin-left: auto }
+.banner span { color: var(--fg); font-weight: 400; overflow: hidden; text-overflow: ellipsis }
 
 /* flash on a new / best lap */
 .flash { animation: fl .6s }
-@keyframes fl { from { background: #2f6b45 } to { background: var(--card) } }
+@keyframes fl { from { background: #1f5a3c } to { background: var(--card) } }
 .flash.b { animation: flb .9s }
-@keyframes flb { from { background: #7a6516 } to { background: var(--card) } }
+@keyframes flb { from { background: #4b2f7a } to { background: var(--card) } }
 
-button { background: var(--line); color: var(--fg); border: 0; border-radius: 8px; padding: 10px 14px; font-size: 15px; cursor: pointer }
-button.r { background: var(--acc) }
-button:disabled { opacity: .35; cursor: default }
+/* ---------------------------------------------------------------- training */
+.hero .state { color: var(--mut); text-align: center; font-size: 15px; min-height: 1.4em }
+#lastBest .stat { text-align: center }
+#lastBest .stat h2 { margin-bottom: 2px }
 
-/* drivers */
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px }
-.chip { border-radius: 999px; padding: 9px 16px }
-.chip.on { background: var(--acc); font-weight: 600 }
-.dlist { list-style: none; margin: 8px 0; padding: 0 }
-.dlist li { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line) }
-.dlist button { padding: 4px 10px }
-.add { display: flex; gap: 8px }
-.add input { flex: 1; width: auto }
+/* drivers: tap a chip to drive, + to add, Edit to remove */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px }
+.chip { border-radius: 999px; padding: 8px 16px; min-height: 40px; background: var(--raise); position: relative; max-width: 100% }
+.chip.on { background: var(--fg); color: var(--ink); font-weight: 700 }
+#chips .chip.on::before { content: "● "; color: var(--pb) }
+.chip.add { background: none; border: 1px dashed var(--line); color: var(--mut) }
+.chip .rm { margin-left: 8px; color: var(--stop); font-weight: 700 }
+.editing .chip:not(.add) { background: var(--raise); color: var(--fg); font-weight: 500 }
+.editing .chip:not(.add)::before { content: none }
+.add { display: flex; gap: 8px; margin-top: 10px }
+.add input { flex: 1; width: auto; min-width: 0 }
+.add button { flex: none }
+.carDrivers label { margin: 8px 0; padding-top: 8px; border-top: 1px solid var(--line) }
+.carDrivers label:first-child { border-top: 0 }
+.carDrivers select, .cars input { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px; font-size: 16px }
+.carDrivers select { width: 50% }
 
-/* leaderboard */
-.board { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums }
-.board th { color: var(--mut); font: 400 11px system-ui, sans-serif; text-transform: uppercase; text-align: right; padding: 4px }
-.board td { padding: 6px 4px; border-top: 1px solid var(--line); text-align: right; font-family: var(--mono) }
-.board th:nth-child(2), .board td:nth-child(2) { text-align: left; font-family: inherit }
+/* tables: leaderboard, track, standings */
+.board { width: 100%; border-collapse: collapse; margin-top: 4px; font-variant-numeric: tabular-nums }
+.board th { color: var(--mut); font: 500 12px system-ui, sans-serif; text-align: right; padding: 4px }
+.board td { padding: 8px 4px; border-top: 1px solid var(--line); text-align: right; font: 600 16px var(--num) }
+.board th:nth-child(2), .board td:nth-child(2) { text-align: left; font-family: system-ui, sans-serif; font-weight: 500 }
 .board td:first-child { color: var(--mut) }
-.board tr.lead td { color: var(--gold) }
+#boardCard tr.lead td:nth-child(3) { color: var(--best) }
 .board tr.now td:nth-child(2) { font-weight: 700 }
+.board tr.now td:nth-child(2)::before { content: "● "; color: var(--pb) }
+.board.track th:first-child, .board.track td:first-child { text-align: left; font-family: system-ui, sans-serif; font-weight: 500; color: var(--fg);
+  max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.board.track th:nth-child(2), .board.track td:nth-child(2) { text-align: right; font-family: var(--num) }
+.board.track td.now { color: var(--fg) }
+.board.track tr.lead td:nth-child(5) { color: var(--best) }
+.board tr.acts td { text-align: left; font-family: system-ui, sans-serif }
+.board tr.acts button { padding: 6px 12px; min-height: 36px; font-size: 14px; margin-right: 6px }
+.board button.x { padding: 0 6px; min-height: 30px; background: none; color: var(--mut); font-size: 18px }
 
 /* lap list */
-ol { list-style: none; margin: 6px 0 0; padding: 0; max-height: 45vh; overflow: auto }
-li.lap { display: grid; grid-template-columns: minmax(2.6em, auto) 1fr auto 5.2em 2em; gap: 6px; align-items: center;
-         padding: 5px 2px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-variant-numeric: tabular-nums }
-li.lap .who { font-family: system-ui, sans-serif; color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-li.lap .d { color: var(--mut); text-align: right }
-li.lap.b { color: var(--gold) }
-li.lap.pb .d { color: var(--ok) }
-li.lap.del { color: var(--mut); text-decoration: line-through; opacity: .6 }
-li.lap.short .d { color: #ff9f43 }
-li.lap .x { padding: 2px 0; background: none; color: var(--mut); font-size: 18px; line-height: 1 }
+ol { list-style: none; margin: 4px 0 0; padding: 0; max-height: 50vh; overflow: auto }
+li.lap { display: grid; grid-template-columns: minmax(2.4em, auto) 1fr auto 5.4em 2.2em; gap: 6px; align-items: center;
+         padding: 6px 2px; border-bottom: 1px solid var(--line); font: 600 17px var(--num); font-variant-numeric: tabular-nums }
+li.lap > span:first-child { color: var(--mut) }
+li.lap .who { font: 400 14px system-ui, sans-serif; color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+li.lap .d { color: var(--mut); text-align: right; font-size: 15px }
+li.lap.b > span:nth-child(3), li.lap.b .d { color: var(--best) }
+li.lap.pb .d { color: var(--pb) }
+li.lap.del { color: var(--mut); text-decoration: line-through; opacity: .55 }
+li.lap.short .d { color: var(--flag) }
+li.lap .x { padding: 0; min-height: 30px; background: none; color: var(--mut); font-size: 18px; line-height: 1 }
 li.lap .x.on { color: var(--fg) }
 li.acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--line) }
-li.acts button { padding: 8px 12px; font-size: 14px }
+li.acts button { padding: 8px 12px; min-height: 38px; font-size: 14px }
 li.acts .hint { flex-basis: 100%; margin: 0 }
+.approx { color: var(--flag); margin-right: 2px }
+#reset { margin-top: 4px }
 
-/* ADC value and idle marker */
-.bar { height: 10px; background: var(--line); border-radius: 5px; position: relative; margin: 8px 0 }
+/* ---------------------------------------------------------------- race */
+.seg { display: flex; margin: 4px 0 12px; background: var(--bg); border-radius: 10px; padding: 3px }
+.seg button { flex: 1; background: none; color: var(--mut); min-height: 40px }
+.seg button.on { background: var(--raise); color: var(--fg); font-weight: 700 }
+.stepper { display: flex; align-items: center; gap: 8px }
+.stepper span { flex: 1; color: var(--mut) }
+.stepper input { width: 4.2em; text-align: center; font: 700 24px var(--num); padding: 6px 4px }
+.stepper .step { width: 48px; font-size: 22px; padding: 0 }
+.race-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px }
+.race-head h2 { color: var(--fg); font-size: 16px; margin: 0 }
+.race-clock { font: 700 24px var(--num) }
+.countdown { font: 700 112px/1 var(--num); text-align: center; color: var(--flag); margin: 14px 0 }
+.standings td:nth-child(2) { max-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.standings td:nth-child(3) { font-weight: 700 }
+.standings tr.lead td:first-child { color: var(--flag) }
+#raceCard .row { margin-top: 12px }
+#raceAgain { margin-top: 12px }
+
+/* heats: the driver on the track */
+.hn-who { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; font-size: 22px; font-weight: 700 }
+.hn-who #hnLap { color: var(--mut); font: 600 17px var(--num) }
+.hn-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center }
+.hn-stats b { font: 700 18px var(--num); font-variant-numeric: tabular-nums }
+.hn-stats .ahead { color: var(--pb) } .hn-stats .behind { color: var(--stop) }
+.hn-msg { text-align: center; margin: 12px 0 4px; font-size: 16px; font-weight: 600; color: var(--mut) }
+.hn-msg.final { color: var(--flag); font: 700 26px var(--num); letter-spacing: .06em }
+.hn-next { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--raise); font-size: 15px }
+.hn-next.ready { background: rgba(255, 204, 51, .16); border: 1px solid rgba(255, 204, 51, .5); color: var(--flag); font-weight: 700; font-size: 18px }
+.hn-next .then { color: var(--mut); font-weight: 400; font-size: 13px; display: block; margin-top: 2px }
+
+/* ---------------------------------------------------------------- settings */
+.bar { height: 10px; background: var(--line); border-radius: 5px; position: relative; margin: 10px 0 }
 .bar i { position: absolute; top: -3px; width: 3px; height: 16px; border-radius: 2px; margin-left: -1px }
-#band { position: absolute; top: 0; bottom: 0; background: #3d4252; border-radius: 5px }
-.meter { display: flex; gap: 8px; margin: 10px 0 0 }
-.meter div { flex: 1; background: var(--bg); border-radius: 8px; padding: 6px 8px }
-.meter dt { color: var(--mut); font-size: 11px; text-transform: uppercase; letter-spacing: .04em }
-.meter dd { margin: 2px 0 0; font: 600 17px var(--mono) }
-#useSuggest { margin-top: 8px }
+#band { position: absolute; top: 0; bottom: 0; background: #3e4d5e; border-radius: 5px }
 #mb { background: var(--fg); opacity: .7 }
-#mr { background: var(--ok) }
-
-input { width: 140px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 16px }
-label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; gap: 8px }
-details { margin-top: 4px }
-details summary { cursor: pointer; color: var(--mut) }
-.hint { color: var(--mut); font-size: 13px; margin: 8px 0 0 }
-a { color: var(--ok) }
-
-/* Wi-Fi */
-.sum { color: var(--mut); font-size: 13px; margin-left: 4px }
-.wstat { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size: 14px; line-height: 1.6; border-left: 3px solid var(--line) }
-.wstat.ok   { border-left-color: var(--ok) }
-.wstat.busy { border-left-color: var(--gold) }
-.wstat.bad  { border-left-color: var(--acc) }
-button.wide { width: 100% }
+#mr { background: var(--pb) }
+.meter { display: flex; gap: 8px; margin: 10px 0 0 }
+.meter div { flex: 1; background: var(--bg); border-radius: 10px; padding: 8px 10px }
+.meter dt { color: var(--mut); font-size: 12px }
+.meter dd { margin: 2px 0 0; font: 700 20px var(--num) }
+#useSuggest { margin-top: 10px }
+.wstat { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg); font-size: 14px; line-height: 1.6; border-left: 3px solid var(--line) }
+.wstat.ok   { border-left-color: var(--pb) }
+.wstat.busy { border-left-color: var(--flag) }
+.wstat.bad  { border-left-color: var(--stop) }
 .nets { list-style: none; margin: 8px 0; padding: 0 }
 .nets button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px;
                background: var(--bg); border: 1px solid var(--line); margin-bottom: 6px; text-align: left }
 .nets span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; vertical-align: middle }
 .bars i { width: 3px; background: var(--line); border-radius: 1px }
-.bars i:nth-child(1) { height: 25% }
-.bars i:nth-child(2) { height: 50% }
-.bars i:nth-child(3) { height: 75% }
-.bars i:nth-child(4) { height: 100% }
-.bars i.on { background: var(--ok) }
+.bars i:nth-child(1) { height: 25% } .bars i:nth-child(2) { height: 50% }
+.bars i:nth-child(3) { height: 75% } .bars i:nth-child(4) { height: 100% }
+.bars i.on { background: var(--pb) }
+.cars { list-style: none; margin: 8px 0; padding: 0 }
+.cars li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line) }
+.cars .tx { font: 600 15px var(--num); color: var(--mut); min-width: 5.5em }
+.cars input { flex: 1; width: auto; min-width: 0 }
+.cars button { min-height: 38px; padding: 4px 12px }
 
-/* big view: a phone propped up at the track */
+/* ---------------------------------------------------------------- big view: a phone propped up at the track */
 .bigview { position: fixed; inset: 0; z-index: 10; background: #000; padding: 20px;
            display: flex; flex-direction: column; justify-content: center; gap: 3vh; text-align: center; cursor: pointer }
 .bv-top { display: flex; justify-content: space-between; gap: 12px; color: var(--mut); font-size: clamp(18px, 4.5vw, 40px) }
-.bv-cur { font: 700 clamp(64px, 23vw, 34vh) var(--mono); line-height: 1; font-variant-numeric: tabular-nums }
+.bv-cur { font: 700 clamp(64px, 25vw, 36vh)/1 var(--num); font-variant-numeric: tabular-nums }
 .bv-row { display: flex; justify-content: space-around }
-.bv-row .lbl { font-size: clamp(12px, 2.6vw, 22px) }
-.bv-mid { font: 700 clamp(32px, 11vw, 15vh) var(--mono); font-variant-numeric: tabular-nums }
-.bv-exit { color: #5a5e6b; font-size: 12px }
+.bv-row .sub { font-size: clamp(12px, 2.6vw, 22px) }
+.bv-mid { font: 700 clamp(32px, 12vw, 16vh) var(--num); font-variant-numeric: tabular-nums }
+.bv-exit { color: #4b5866; font-size: 12px }
 .bigview .warn { font-size: clamp(14px, 3vw, 24px) }
 .bigview.flash { animation: flbv .6s }
-@keyframes flbv { from { background: #2f6b45 } to { background: #000 } }
+@keyframes flbv { from { background: #1f5a3c } to { background: #000 } }
 .bigview.flash.b { animation: flbvb .9s }
-@keyframes flbvb { from { background: #7a6516 } to { background: #000 } }
-
-/* several cars and races */
-.board.track td.now { color: var(--fg) }
-.board.track th:first-child, .board.track td:first-child { text-align: left; font-family: inherit; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.board.track th:nth-child(2), .board.track td:nth-child(2) { text-align: right; font-family: var(--mono) }
-.standings td:nth-child(2) { max-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.board.track tr.acts td, .board tr.acts td { text-align: left; font-family: inherit }
-.board tr.acts button { padding: 6px 10px; font-size: 14px; margin-right: 6px }
-.board button.x { padding: 0 4px; background: none; color: var(--mut); font-size: 18px }
-.race-head { display: flex; justify-content: space-between; align-items: baseline }
-.race-clock { font: 700 22px var(--mono) }
-.countdown { font: 800 96px var(--mono); text-align: center; color: var(--gold); margin: 8px 0 }
-.standings td:nth-child(3) { font-weight: 700 }
-#raceStop { margin-top: 10px }
-.carDrivers label { margin: 6px 0 }
-.carDrivers select, .cars input { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 16px }
-.carDrivers select { width: 160px }
-.cars { list-style: none; margin: 8px 0; padding: 0 }
-.cars li { display: flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line) }
-.cars .tx { font-family: var(--mono); color: var(--mut); min-width: 5.5em }
-.cars input { flex: 1; width: auto }
-.cars button { padding: 4px 10px }
-.switch { cursor: pointer }
-.switch input { width: 22px; height: 22px; accent-color: var(--acc) }
-.seg { display: flex; gap: 0; margin: 8px 0 }
-.seg button { flex: 1; border-radius: 0; background: var(--bg); border: 1px solid var(--line) }
-.seg button:first-child { border-radius: 8px 0 0 8px }
-.seg button:last-child { border-radius: 0 8px 8px 0 }
-.seg button.on { background: var(--line); font-weight: 600 }
-.approx { color: #ff9f43; margin-right: 2px }
-.bv-table { width: 100%; border-collapse: collapse; font: 700 clamp(22px, 6vw, 9vh) var(--mono); font-variant-numeric: tabular-nums }
-.bv-table td { padding: .15em .3em; border-bottom: 1px solid #22252e; text-align: right }
+@keyframes flbvb { from { background: #4b2f7a } to { background: #000 } }
+.bv-table { width: 100%; border-collapse: collapse; font: 700 clamp(22px, 6.5vw, 9vh) var(--num); font-variant-numeric: tabular-nums }
+.bv-table td { padding: .15em .3em; border-bottom: 1px solid #1e252d; text-align: right }
 .bv-table td.name { text-align: left; font-family: system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw }
-.bv-table th { color: var(--mut); font: 400 clamp(11px, 2vw, 18px) system-ui, sans-serif; text-transform: uppercase; text-align: right; padding: 0 .4em }
+.bv-table th { color: var(--mut); font: 400 clamp(11px, 2vw, 18px) system-ui, sans-serif; text-align: right; padding: 0 .4em }
 .bv-table th:first-child { text-align: left }
-.bv-table tr.lead td { color: var(--gold) }
+.bv-table tr.lead td { color: var(--flag) }
 .bv-count { font-size: clamp(80px, 30vw, 50vh) }
-
-/* heats: the driver on the track */
-.hn-who { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; font-size: 20px; font-weight: 700 }
-.hn-who #hnLap { color: var(--mut); font-size: 15px; font-weight: 400 }
-.hn-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center }
-.hn-stats b { font: 700 16px var(--mono); font-variant-numeric: tabular-nums }
-.hn-stats .ahead { color: var(--ok) } .hn-stats .behind { color: var(--acc) }
-.hn-msg { text-align: center; margin: 10px 0 4px; font-size: 17px; font-weight: 600 }
-.hn-msg.final { color: var(--gold); font-size: 22px; letter-spacing: .04em }
-.hn-next { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #22252e; font-size: 15px }
-.hn-next.ready { background: #4a3d0e; color: var(--gold); font-weight: 700; font-size: 18px }
-.hn-next .then { color: var(--mut); font-weight: 400; font-size: 13px; display: block; margin-top: 2px }
 .bv-next { font-size: clamp(18px, 4.5vw, 40px); color: var(--mut); margin-top: .3em }
-.bv-next.ready { color: var(--gold); font-weight: 700 }
-.warn .calnow { margin-top: 8px; width: 100% }
+.bv-next.ready { color: var(--flag); font-weight: 700 }
+
+@media (max-width: 360px) {
+  .pill { padding: 5px 8px }
+  #ctxt { display: none }
+  .big { font-size: 54px }
+}
