@@ -173,7 +173,7 @@ function raceTick() {
   if (r && r.heats && r.phase === 'running') heatVoice(r);
   if (r && r.finished && !finishSaid) {
     finishSaid = true;
-    say(`Race finished. Winner, ${rowName(r.rows[0])}`);
+    say(`Race finished. Winner, ${rowName(r.rows[0])}`, 'queue');
   }
   if (!$('bigView').hidden && (multi() || racing())) renderBigTable(r);
 }
@@ -189,12 +189,12 @@ function heatVoice(r) {
       }
     }
     heatSaid = heat;
-    if (r.current) say(`${rowName(r.current)}, your turn`);
+    if (r.current) say(`${rowName(r.current)}, your turn`, 'queue');
   }
   const cur = r.current;
   if (cur && cur.started && S.race.laps - cur.laps === 1 && finalSaid !== heat) {
     finalSaid = heat;
-    say('Final lap' + (r.next ? `. ${driverName(r.next)}, get ready` : ''));
+    say('Final lap' + (r.next ? `. ${driverName(r.next)}, get ready` : ''), 'queue');
     tone(990, .2);
   }
 }

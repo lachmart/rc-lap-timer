@@ -3,7 +3,7 @@
 let beepOn = false, voiceOn = false, ac = null;
 
 function setToggle(btn, on, label) {
-  btn.textContent = label;
+  btn.textContent = (on ? '🔊 ' : '🔇 ') + label;
   btn.classList.toggle('on', on);
   btn.setAttribute('aria-pressed', on);
 }
@@ -33,7 +33,10 @@ function setVoice(on, greet) {
   voiceOn = on;
   setToggle($('voice'), on, 'Voice');
   prefs.set('voice', on);
-  if (on && greet) say('Voice on');
+  if (on && greet) {
+    speechSynthesis.cancel();
+    say('Voice on', 'now');
+  }
 }
 
 function tone(freq, secs) {
@@ -50,12 +53,25 @@ function beep(best) {
   tone(best ? 1320 : 880, best ? .35 : .15);
 }
 
-function say(text) {
+// A new announcement interrupts the previous one; mode 'queue' waits for it instead (several
+// messages at once, e.g. a heat result and the next driver). Phone browsers (iOS Safari above all)
+// drop an utterance spoken in the same moment as cancel(), so cancel only when something is being
+// said and speak a moment later; 'now' speaks at once, inside the tap (needed to unlock speech).
+let delayed = null;     // utterances waiting out the moment after cancel(), in order
+
+function say(text, mode = '') {
   if (!voiceOn) return;
-  speechSynthesis.cancel();                            // a new lap interrupts the previous announcement
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'en-US';
-  speechSynthesis.speak(u);
+  if (mode === 'now') { speechSynthesis.speak(u); return; }
+  if (delayed) {                                       // an interruption is under way: join it
+    if (mode === 'queue') delayed.push(u); else delayed.splice(0, delayed.length, u);
+    return;
+  }
+  if (mode === 'queue' || !(speechSynthesis.speaking || speechSynthesis.pending)) { speechSynthesis.speak(u); return; }
+  speechSynthesis.cancel();
+  delayed = [u];
+  setTimeout(() => { const list = delayed; delayed = null; for (const x of list) speechSynthesis.speak(x); }, 60);
 }
 
 function announce(lap, kind) {
@@ -73,8 +89,9 @@ function soundInit() {
   $('voice').onclick = () => setVoice(!voiceOn, true);
   setBeep(prefs.get('beep'));
   setVoice(prefs.get('voice'), false);
-  document.addEventListener('pointerdown', () => {
+  document.addEventListener('pointerdown', e => {
     if (beepOn) unlockAudio();
-    if (voiceOn) speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    // unlock speech with a silent utterance, unless this tap is the switch itself (it speaks)
+    if (voiceOn && e.target !== $('voice')) speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
   }, { once: true });
 }
