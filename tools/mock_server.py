@@ -161,10 +161,15 @@ class Timer:
                 del self.laps[self.last_lap_index(slot)]
                 c.num -= 1
                 c.last_cross = c.prev_cross
-                if c.undo_driver:              # a handover after that pass is undone too (timingUndo)
+                if c.undo_driver:              # a handover after that pass is undone too
                     c.driver = c.undo_driver
-                    if slot == 0 and self.race["heat"] > 0:
-                        self.race.update(heat=self.race["heat"] - 1, heatState="running", heatGo=self.prev_go)
+                race = self.race               # undid the lap that ended a heat: that heat runs on (timingUndo)
+                if slot == 0 and race["order"] and race["heat"] > 0:
+                    prev = race["order"][race["heat"] - 1]
+                    done = sum(1 for lap in self.laps if lap["car"] == 0 and lap["driver"] == prev
+                               and not lap["deleted"] and lap["end"] // 1000 > race["go"])
+                    if done < race["laps"]:
+                        race.update(heat=race["heat"] - 1, heatState="running", heatGo=self.prev_go)
             else:
                 return False
             c.last_pass, c.undo_driver = None, 0
@@ -315,8 +320,9 @@ class Timer:
         with self.lock:
             race = self.race
             if race["state"] == "countdown" or (race["state"] == "running" and (
-                    t // 1000 < race["go"] or race["heatState"] != "running" or t // 1000 < race["heatGo"])):
-                return                         # before "go", or the next driver gets ready
+                    t // 1000 < race["go"] or race["heatState"] != "running" or t // 1000 < race["heatGo"]
+                    or (race["order"] and race["heat"] >= len(race["order"])))):
+                return                         # before "go", the next driver gets ready, or all heats done
             if tx:
                 self.ir_id, self.ir_us = tx, t
             slot = self.slot_for(tx) if tx else (-1 if self.multi else 0)
@@ -627,7 +633,7 @@ class Http(BaseHTTPRequestHandler):
                                                             num("prep")),
                                            True)[-1],
             "/api/race/next":     lambda: timer.heat_start(),
-            "/api/race/stop":     lambda: (timer.race.update(state="off"), True)[-1],
+            "/api/race/stop":     lambda: (timer.race.update(state="off"), [timer.restart(s) for s in list(timer.cars)], True)[-1],
             "/api/calibrate":     lambda: (setattr(timer, "base", timer.raw), True)[-1],
             "/api/wifi/scan":     lambda: timer.scan_start(),
         }

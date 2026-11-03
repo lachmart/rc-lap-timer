@@ -33,7 +33,7 @@ function setVoice(on, greet) {
   voiceOn = on;
   setToggle($('voice'), on, 'Voice');
   prefs.set('voice', on);
-  if (!on) speechSynthesis.cancel();
+  if (!on) { speechSynthesis.cancel(); talking.clear(); setVoiceStuck(false); }
   if (on && greet) say('Voice on');                    // inside the tap: unlocks speech on phones
 }
 
@@ -51,23 +51,24 @@ function beep(best) {
   tone(best ? 1320 : 880, best ? .35 : .15);
 }
 
-// A new announcement interrupts the previous one; mode 'queue' waits for it instead (several
-// messages at once, e.g. a heat result and the next driver). Browsers drop an utterance spoken in
-// the same moment as cancel() (iOS Safari), so cancel only when something is being said and speak
-// a moment later, in order.
-let delayed = null;     // utterances waiting out the moment after cancel(), in order
-const talking = new Set();   // utterances until they end: Chrome stalls if one is garbage-collected early
-let checkT = null;
+// Speech: messages are short and queue up, each is said in full; nothing is ever cut off.
+// Utterances are kept until they end (Chrome stalls if one is garbage-collected early).
+const talking = new Set();
+let heardAt = 0;       // last time speech started or ended
 
-function speak(u) {
+function say(text) {
+  if (!voiceOn) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  if (!talking.size) heardAt = Date.now();
   talking.add(u);
-  u.onstart = () => setVoiceStuck(false);
-  u.onend = u.onerror = () => talking.delete(u);
+  u.onstart = () => { heardAt = Date.now(); setVoiceStuck(false); };
+  u.onend = u.onerror = () => { heardAt = Date.now(); talking.delete(u); };
   speechSynthesis.resume();                            // Chrome can sit paused after the tab was hidden
   speechSynthesis.speak(u);
-  // Accepted but never started: the browser's speech is stuck (seen in Chrome on macOS); say so on the switch
-  clearTimeout(checkT);
-  checkT = setTimeout(() => { if (talking.has(u) && voiceOn) setVoiceStuck(true); }, 4000);
+  // Nothing started or ended for a while although messages wait: the browser's speech is stuck
+  // (seen in Chrome on macOS). Say so on the switch.
+  setTimeout(() => { if (voiceOn && talking.size && Date.now() - heardAt >= 8000) setVoiceStuck(true); }, 8100);
 }
 
 function setVoiceStuck(stuck) {
@@ -76,26 +77,14 @@ function setVoiceStuck(stuck) {
     : 'Read out lap times';
 }
 
-function say(text, mode = '') {
-  if (!voiceOn) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-US';
-  if (delayed) {                                       // an interruption is under way: join it
-    if (mode === 'queue') delayed.push(u); else delayed.splice(0, delayed.length, u);
-    return;
-  }
-  if (mode === 'queue' || !(speechSynthesis.speaking || speechSynthesis.pending)) { speak(u); return; }
-  speechSynthesis.cancel();
-  delayed = [u];
-  setTimeout(() => { const list = delayed; delayed = null; for (const x of list) speak(x); }, 60);
+// A lap: its time, "best" for the best lap of the session; with several drivers or cars who it was.
+function lapText(lap, kind, withName) {
+  const name = withName ? whoOn(lap[L.CAR]) : '';
+  return (name ? name + ', ' : '') + (lap[L.MS] / 1000).toFixed(2) + (kind === 'best' ? ', best' : '');
 }
 
 function announce(lap, kind) {
-  const name = multi() || S.drivers.length ? whoOn(lap[L.CAR]) : '';
-  let text = (name ? name + ', ' : '') + (lap[L.MS] / 1000).toFixed(2);
-  if (kind === 'best') text += ', best lap';
-  else if (kind === 'pb') text += ', personal best';
-  say(text);
+  say(lapText(lap, kind, multi() || S.drivers.length > 0));
 }
 
 // Browsers only allow sound after the user touched the page: restore the saved switches

@@ -173,8 +173,6 @@ li.acts .hint { flex-basis: 100%; margin: 0 }
 .hn-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center }
 .hn-stats b { font: 700 18px var(--num); font-variant-numeric: tabular-nums }
 .hn-stats .ahead { color: var(--pb) } .hn-stats .behind { color: var(--stop) }
-.hn-msg { text-align: center; margin: 12px 0 4px; font-size: 16px; font-weight: 600; color: var(--mut) }
-.hn-msg.final { color: var(--flag); font: 700 26px var(--num); letter-spacing: .06em }
 .hn-next { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--raise); font-size: 15px }
 .hn-next.ready { background: rgba(255, 204, 51, .16); border: 1px solid rgba(255, 204, 51, .5); color: var(--flag); font-weight: 700; font-size: 18px }
 .hn-next .then { color: var(--mut); font-weight: 400; font-size: 13px; display: block; margin-top: 2px }
@@ -242,3 +240,16 @@ li.acts .hint { flex-basis: 100%; margin: 0 }
   .pill { padding: 5px 7px; font-size: 12px }
   .big { font-size: 54px }
 }
+
+/* the instruction: who does what now */
+.call { margin: 10px 0; padding: 14px 12px; border-radius: 12px; background: var(--raise); text-align: center; border: 1px solid transparent }
+.call-main { font: 700 26px/1.15 var(--num); letter-spacing: .01em }
+.call-sub { color: var(--mut); font-size: 15px; margin-top: 4px }
+.call-sub:empty { display: none }
+.call.ready { background: rgba(255, 204, 51, .14); border-color: rgba(255, 204, 51, .5) }
+.call.ready .call-main { color: var(--flag) }
+.call.go { background: rgba(53, 212, 131, .14); border-color: rgba(53, 212, 131, .5) }
+.call.go .call-main { color: var(--pb) }
+.call.done .call-main { color: var(--fg) }
+.bv-call { font: 700 clamp(26px, 7vw, 10vh)/1.1 var(--num) }
+.bv-call.ready { color: var(--flag) } .bv-call.go { color: var(--pb) }

@@ -59,6 +59,7 @@ bool RaceClock::counts(int64_t passUs) const {
   switch (race.state) {
     case RaceState::Countdown: return false;               // cars lining up, not racing yet
     case RaceState::Running:                               // and between heats: the next driver gets ready
+      if (race.nHeats && race.heat >= race.nHeats) return false;   // all heats done: the race is over
       return passUs >= race.goUs && race.heatState == HeatState::Running && passUs >= race.heatGoUs;
     default:                   return true;                // training
   }

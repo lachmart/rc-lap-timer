@@ -104,6 +104,7 @@ void test_heats_in_order_manual_start() {
   TEST_ASSERT_TRUE(r.heatLaps(6, ms(190000)));
   TEST_ASSERT_EQUAL_UINT8(0, r.heatDriver());          // all done
   TEST_ASSERT_EQUAL_INT(3, r.info().heat);
+  TEST_ASSERT_FALSE(r.counts(ms(195000)));              // the race is over: the car's crossings don't count
   TEST_ASSERT_FALSE(r.heatLaps(99, ms(200000)));
   TEST_ASSERT_FALSE(r.startHeat(ms(200000)));
 }

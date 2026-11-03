@@ -43,9 +43,10 @@ void timingSetMulti(bool multi) {
 }
 
 bool timingUndo(int car) {
-  uint8_t before = lapsDriver(car);
   if (!lapsUndo(car)) return false;
-  if (car == 0 && lapsDriver(0) != before) race.backHeat();   // undid a heat's last lap: the car is back
+  // Undid the lap that ended a heat (also the last one, with no handover): that heat runs on
+  RaceInfo r = race.info();
+  if (car == 0 && r.nHeats && r.heat > 0 && lapsCountOf(0, r.order[r.heat - 1], r.goUs) < r.laps) race.backHeat();
   return true;
 }
 
@@ -67,6 +68,9 @@ void timingRaceStart(int laps, int minutes, const uint8_t* order, int nHeats, in
 
 bool timingHeatStart() { return race.startHeat(esp_timer_get_time()); }
 
-void timingRaceStop() { race.stop(); }
+void timingRaceStop() {
+  race.stop();
+  for (int s = 0; s < MAX_CARS; s++) lapsRestart(s);   // training starts clean: the next crossing starts timing
+}
 
 RaceInfo timingRace() { return race.info(); }
