@@ -95,7 +95,7 @@ pio device monitor
 ```
 
 If the upload hangs at `Connecting...`, hold the **BOOT** button until it starts.
-If it breaks off halfway, lower `upload_speed` in `platformio.ini` to 460800.
+If it breaks off after `Changing baud rate`, lower `upload_speed` in `platformio.ini` (it is 460800, the CH9102 board fails at 921600).
 
 **Over Wi-Fi** (after the first USB upload, e.g. with the timer mounted at the track): connect the laptop
 to RC_Lap_Timer and run `pio run -e ota -t upload`. On the home network use
