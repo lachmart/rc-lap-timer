@@ -159,3 +159,17 @@ button.wide { width: 100% }
 .bv-table th:first-child { text-align: left }
 .bv-table tr.lead td { color: var(--gold) }
 .bv-count { font-size: clamp(80px, 30vw, 50vh) }
+
+/* heats: the driver on the track */
+.hn-who { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; font-size: 20px; font-weight: 700 }
+.hn-who #hnLap { color: var(--mut); font-size: 15px; font-weight: 400 }
+.hn-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center }
+.hn-stats b { font: 700 16px var(--mono); font-variant-numeric: tabular-nums }
+.hn-stats .ahead { color: var(--ok) } .hn-stats .behind { color: var(--acc) }
+.hn-msg { text-align: center; margin: 10px 0 4px; font-size: 17px; font-weight: 600 }
+.hn-msg.final { color: var(--gold); font-size: 22px; letter-spacing: .04em }
+.hn-next { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #22252e; font-size: 15px }
+.hn-next.ready { background: #4a3d0e; color: var(--gold); font-weight: 700; font-size: 18px }
+.hn-next .then { color: var(--mut); font-weight: 400; font-size: 13px; display: block; margin-top: 2px }
+.bv-next { font-size: clamp(18px, 4.5vw, 40px); color: var(--mut); margin-top: .3em }
+.bv-next.ready { color: var(--gold); font-weight: 700 }

@@ -203,3 +203,28 @@ test('heats need one car and a laps race', () => {
   assert.equal(isHeats(heats({ order: [] })), false);
   assert.equal(isHeats(heats({ raceLaps: 0 })), false);
 });
+
+test('heats: who is next, and the split against the fastest heat after the same laps', () => {
+  const laps = [...heat(1, 11000, 9000, 9000, 9000), ...heat(2, 50000, 8000, 8500)];
+  const s = standings(heats({ laps, heat: 1 }), 70000);
+  assert.equal(s.next, 3);
+  assert.deepEqual(s.after, []);
+  assert.equal(s.vs, 1);
+  assert.equal(s.splitMs, 16500 - 18000);
+  assert.deepEqual(s.current.lapMs, [8000, 8500]);
+});
+
+test('heats: no split for the first driver or before the first lap', () => {
+  assert.equal(standings(heats({ laps: heat(1, 11000, 9000) }), 25000).splitMs, undefined);
+  const laps = heat(1, 11000, 9000, 9000, 9000);
+  assert.equal(standings(heats({ laps, heat: 1 }), 50000).splitMs, undefined);
+});
+
+test('heats: during the countdown the first driver is up next', () => {
+  const st = heats();
+  st.race.state = 'countdown';
+  const s = standings(st, GO - 1000);
+  assert.equal(s.heats, true);
+  assert.equal(s.next, 1);
+  assert.deepEqual(s.after, [2, 3]);
+});

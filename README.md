@@ -159,6 +159,9 @@ training, the laps stay. Undo, join and delete also work in a race; the standing
 to leave one out or change the order. Each driver drives the laps on their own: after a driver's last lap
 the timer hands the car to the next one by itself (no tap needed), whose time starts at the car's next
 crossing, so there is one untimed lap to hand over the transmitter. Fastest total time wins.
+During heats the race card shows the driver on the track with the running lap and heat total to the
+millisecond, last/best lap, the split against the fastest heat so far after the same number of laps, how
+many laps are left, and who is next; on the final lap the next driver is told to get ready (also by voice).
 
 ### ZRound
 

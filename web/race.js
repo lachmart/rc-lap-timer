@@ -71,6 +71,7 @@
         laps: laps.length,
         started: laps.length > 0 || (current && !!car0 && car0.running),
         lastAt: laps.length ? laps[laps.length - 1][L.END] : null,
+        lapMs: laps.map(l => l[L.MS]),
         totalMs: laps.reduce((t, l) => t + l[L.MS], 0),
         bestMs: laps.length ? Math.min(...laps.map(l => l[L.MS])) : 0,
         finished: laps.length >= race.laps || i < race.heat,
@@ -101,13 +102,27 @@
       allIn: false,
       rows: [],
     };
-    if (phase !== 'running') return result;
-
     if (isHeats(state)) {
       result.heats = true;
+      result.next = race.order[race.heat + 1] || null;        // driver ids: up next, and the rest after them
+      result.after = race.order.slice(race.heat + 2);
+    }
+    if (phase !== 'running') {
+      if (result.heats) { result.next = race.order[0] || null; result.after = race.order.slice(1); }
+      return result;
+    }
+
+    if (result.heats) {
       result.rows = heatRows(state);
       result.current = result.rows.find(r => r.current) || null;
       result.finished = result.allIn = race.heat >= race.order.length;
+      // Split: the current driver's total against the fastest full heat after the same number of laps
+      const lead = result.rows.find(r => r.pos === 1 && r.finished && r.laps === race.laps);
+      const cur = result.current;
+      if (cur && lead && lead !== cur && cur.laps > 0) {
+        result.vs = lead.driver;
+        result.splitMs = cur.totalMs - lead.lapMs.slice(0, cur.laps).reduce((t, ms) => t + ms, 0);
+      }
       return result;
     }
 

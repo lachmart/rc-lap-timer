@@ -400,6 +400,7 @@ function tick() {
       }
     }
   }
+  raceFrame();
   requestAnimationFrame(tick);
 }
 

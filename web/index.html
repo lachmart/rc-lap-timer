@@ -25,6 +25,18 @@
   <div class="card" id="raceCard" hidden>
     <div class="race-head"><span class="lbl" id="raceTitle">Race</span><span class="race-clock" id="raceClock"></span></div>
     <div class="countdown" id="countdown" hidden></div>
+    <div id="heatNow" hidden>                 <!-- heats: the driver on the track, live -->
+      <div class="hn-who"><span id="hnName"></span><span id="hnLap"></span></div>
+      <div class="big" id="hnCur">--.---</div>
+      <div class="hn-stats">
+        <div><div class="lbl">Total</div><b id="hnTotal">–</b></div>
+        <div><div class="lbl">Last</div><b id="hnLast">–</b></div>
+        <div><div class="lbl">Best</div><b id="hnBest">–</b></div>
+        <div><div class="lbl" id="hnVs">Split</div><b id="hnSplit">–</b></div>
+      </div>
+      <div class="hn-msg" id="hnMsg"></div>
+    </div>
+    <div class="hn-next" id="hnNext" hidden></div>
     <table class="board standings">
       <thead><tr><th></th><th>Driver</th><th>Laps</th><th id="standLast">Last</th><th>Best</th><th>Gap</th></tr></thead>
       <tbody id="standings"></tbody>
@@ -177,6 +189,11 @@
     <div id="bvMulti" hidden>
       <div class="bv-top"><span id="bvTitle"></span><span id="bvClock"></span></div>
       <div class="countdown bv-count" id="bvCount" hidden></div>
+      <div id="bvHeat" hidden>
+        <div class="bv-cur" id="bvHCur">--.---</div>
+        <div class="bv-top"><span id="bvHMsg"></span><span id="bvHTotal"></span></div>
+        <div class="bv-next" id="bvHNext"></div>
+      </div>
       <table class="bv-table"><tbody id="bvRows"></tbody></table>
     </div>
     <div class="warn" id="bvWarn" hidden></div>
