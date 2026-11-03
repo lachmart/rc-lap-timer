@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_LAPS, MAX_DRIVERS, MAX_CARS, MAX_NAME = 200, 8, 8, 32
 STATS_CAR = 0x100
+DEF_MIN_LAP, DEF_DELTA = 2000, 800
 RACE_COUNTDOWN_MS = 4000
 LIVE_EVERY = 0.2
 FAKE_NETWORKS = {                  # name -> (rssi dBm, open)
@@ -76,7 +77,7 @@ class Timer:
 
     def __init__(self):
         self.lock = threading.RLock()
-        self.min_lap, self.delta = 2000, 800
+        self.min_lap, self.delta = DEF_MIN_LAP, DEF_DELTA
         self.multi, self.zround = False, False
         self.race_laps, self.race_min = 10, 0
         self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0}
@@ -104,8 +105,12 @@ class Timer:
             self.laps, self.ignored, self.unident = [], 0, 0
             self.changed()
 
+    def oldest_kept(self):
+        """Index of the oldest lap still in the firmware's ring."""
+        return max(0, len(self.laps) - MAX_LAPS)
+
     def kept(self):
-        return self.laps[-MAX_LAPS:]
+        return self.laps[self.oldest_kept():]
 
     def crossing(self, slot, t, precise=True):
         with self.lock:
@@ -161,7 +166,7 @@ class Timer:
     def delete(self, seq):
         with self.lock:
             i = seq - 1
-            if not (max(0, len(self.laps) - MAX_LAPS) <= i < len(self.laps)) or self.laps[i]["deleted"]:
+            if not (self.oldest_kept() <= i < len(self.laps)) or self.laps[i]["deleted"]:
                 return False
             lap = self.laps[i]
             lap["deleted"] = True
@@ -178,7 +183,7 @@ class Timer:
     def join(self, seq):
         with self.lock:
             i = seq - 1
-            if not (max(0, len(self.laps) - MAX_LAPS) <= i < len(self.laps)):
+            if not (self.oldest_kept() <= i < len(self.laps)):
                 return False
             a = self.laps[i]
             j = next((k for k in range(i + 1, len(self.laps)) if self.laps[k]["car"] == a["car"]), -1)
