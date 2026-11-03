@@ -122,3 +122,40 @@ button.wide { width: 100% }
 @keyframes flbv { from { background: #2f6b45 } to { background: #000 } }
 .bigview.flash.b { animation: flbvb .9s }
 @keyframes flbvb { from { background: #7a6516 } to { background: #000 } }
+
+/* several cars and races */
+.board.track td.now { color: var(--fg) }
+.board.track th:first-child, .board.track td:first-child { text-align: left; font-family: inherit; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.board.track th:nth-child(2), .board.track td:nth-child(2) { text-align: right; font-family: var(--mono) }
+.standings td:nth-child(2) { max-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.board.track tr.acts td, .board tr.acts td { text-align: left; font-family: inherit }
+.board tr.acts button { padding: 6px 10px; font-size: 14px; margin-right: 6px }
+.board button.x { padding: 0 4px; background: none; color: var(--mut); font-size: 18px }
+.race-head { display: flex; justify-content: space-between; align-items: baseline }
+.race-clock { font: 700 22px var(--mono) }
+.countdown { font: 800 96px var(--mono); text-align: center; color: var(--gold); margin: 8px 0 }
+.standings td:nth-child(3) { font-weight: 700 }
+#raceStop { margin-top: 10px }
+.carDrivers label { margin: 6px 0 }
+.carDrivers select, .cars input { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 16px }
+.carDrivers select { width: 160px }
+.cars { list-style: none; margin: 8px 0; padding: 0 }
+.cars li { display: flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line) }
+.cars .tx { font-family: var(--mono); color: var(--mut); min-width: 5.5em }
+.cars input { flex: 1; width: auto }
+.cars button { padding: 4px 10px }
+.switch { cursor: pointer }
+.switch input { width: 22px; height: 22px; accent-color: var(--acc) }
+.seg { display: flex; gap: 0; margin: 8px 0 }
+.seg button { flex: 1; border-radius: 0; background: var(--bg); border: 1px solid var(--line) }
+.seg button:first-child { border-radius: 8px 0 0 8px }
+.seg button:last-child { border-radius: 0 8px 8px 0 }
+.seg button.on { background: var(--line); font-weight: 600 }
+.approx { color: #ff9f43; margin-right: 2px }
+.bv-table { width: 100%; border-collapse: collapse; font: 700 clamp(22px, 6vw, 9vh) var(--mono); font-variant-numeric: tabular-nums }
+.bv-table td { padding: .15em .3em; border-bottom: 1px solid #22252e; text-align: right }
+.bv-table td.name { text-align: left; font-family: system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw }
+.bv-table th { color: var(--mut); font: 400 clamp(11px, 2vw, 18px) system-ui, sans-serif; text-transform: uppercase; text-align: right; padding: 0 .4em }
+.bv-table th:first-child { text-align: left }
+.bv-table tr.lead td { color: var(--gold) }
+.bv-count { font-size: clamp(80px, 30vw, 50vh) }

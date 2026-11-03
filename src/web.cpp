@@ -4,16 +4,20 @@
 #include <WebSocketsServer.h>
 #include "esp_timer.h"
 #include "config.h"
+#include "cars.h"
 #include "drivers.h"
 #include "laps.h"
 #include "sensor.h"
 #include "settings.h"
+#include "timing.h"
 #include "wlan.h"
+#include "zround.h"
 
 // Files from web/, embedded at build time (board_build.embed_txtfiles in platformio.ini)
 extern const char INDEX_HTML[] asm("_binary_web_index_html_start");
 extern const char STYLE_CSS[]  asm("_binary_web_style_css_start");
 extern const char APP_JS[]     asm("_binary_web_app_js_start");
+extern const char RACE_JS[]    asm("_binary_web_race_js_start");
 
 static WebServer        server(80);
 static WebSocketsServer ws(81);
@@ -32,22 +36,41 @@ static void addJsonString(String& j, const String& s) {
   j += '"';
 }
 
+static const char* raceStateName(RaceState r) {
+  switch (r) {
+    case RaceState::Countdown: return "countdown";
+    case RaceState::Running:   return "running";
+    default:                   return "off";
+  }
+}
+
 static String buildState() {
   static LapSnapshot s;                // large array, keep it off the stack
-  lapsSnapshot(s, esp_timer_get_time());
+  int64_t now = esp_timer_get_time();
+  lapsSnapshot(s, now);
+  RaceInfo race = timingRace();
+  SensorLive live = sensorLive();
 
   String j;
-  j.reserve(600 + s.n * 16);
-  j += "{\"t\":\"state\",\"running\":"; j += s.running ? "true" : "false";
-  j += ",\"cur\":";     j += s.curMs;
-  j += ",\"driver\":";  j += s.driver;
-  j += ",\"canUndo\":"; j += s.canUndo ? "true" : "false";
-  j += ",\"count\":";   j += s.count;
+  j.reserve(1200 + s.n * 44);
+  j += "{\"t\":\"state\",\"now\":"; j += (long)(now / 1000);   // ms; client converts the other times with it
+  j += ",\"multi\":";   j += settings.multi ? "true" : "false";
+  j += ",\"race\":{\"state\":\""; j += raceStateName(race.state);
+  j += "\",\"go\":";    j += (long)(race.goUs / 1000);
+  j += ",\"laps\":";    j += race.laps;
+  j += ",\"minutes\":"; j += race.minutes;
+  j += ",\"setLaps\":"; j += settings.raceLaps;
+  j += ",\"setMin\":";  j += settings.raceMin;
+  j += "},\"count\":";  j += s.count;
   j += ",\"best\":";    j += s.bestMs;
   j += ",\"ignored\":"; j += s.ignored;
+  j += ",\"unident\":"; j += live.unidentified;
   j += ",\"minLap\":";  j += settings.minLapMs;
   j += ",\"delta\":";   j += settings.delta;
-  j += ",\"ssid\":";    addJsonString(j, settings.ssid);
+  j += ",\"zround\":{\"on\":"; j += settings.zround ? "true" : "false";
+  j += ",\"connected\":"; j += zroundConnected() ? "true" : "false";
+  j += ",\"racing\":";  j += zroundRacing() ? "true" : "false";
+  j += "},\"ssid\":";   addJsonString(j, settings.ssid);
   j += ",\"staIp\":\""; j += wlanStaIp(); j += '"';
   j += ",\"sta\":\"";   j += wlanStaState(); j += '"';
   j += ",\"staErr\":\""; j += wlanStaError(); j += '"';
@@ -60,24 +83,49 @@ static String buildState() {
     j += ",\"name\":"; addJsonString(j, driversAt(i).name);
     j += '}';
   }
+  j += "],\"cars\":[";                 // used slots only
+  bool first = true;
+  for (int c = 0; c < MAX_CARS; c++) {
+    if (!carsUsed(c)) continue;
+    const CarState& cs = s.cars[c];
+    if (!first) j += ',';
+    first = false;
+    j += "{\"slot\":";    j += c;
+    j += ",\"tx\":";      j += carsAt(c).tx;
+    j += ",\"name\":";    addJsonString(j, carsAt(c).name);
+    j += ",\"driver\":";  j += cs.driver;
+    j += ",\"running\":"; j += cs.running ? "true" : "false";
+    j += ",\"cur\":";     j += cs.curMs;
+    j += ",\"canUndo\":"; j += cs.canUndo ? "true" : "false";
+    j += ",\"laps\":";    j += cs.laps;
+    j += '}';
+  }
   j += "],\"stats\":[";
   for (int i = 0; i < s.nStats; i++) {
     const DriverStats& d = s.stats[i];
     if (i) j += ',';
-    j += "{\"id\":";     j += d.id;
+    j += "{\"key\":";    j += d.key;
     j += ",\"count\":";  j += d.count;
     j += ",\"best\":";   j += d.bestMs;
     j += ",\"total\":";  j += d.totalMs;
     j += '}';
   }
-  j += "],\"laps\":[";                 // [ms, driver, deleted, continues previous lap], oldest first
+  // [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first
+  j += "],\"laps\":[";
+  int prevOfCar[MAX_CARS];
+  for (int c = 0; c < MAX_CARS; c++) prevOfCar[c] = -1;
   for (int i = 0; i < s.n; i++) {
     const Lap& l = s.laps[i];
-    bool cont = i > 0 && lapsContinues(s.laps[i - 1], l);
+    bool cont = prevOfCar[l.car] >= 0 && lapsContinues(s.laps[prevOfCar[l.car]], l);
+    prevOfCar[l.car] = i;
     if (i) j += ',';
     j += '['; j += l.ms; j += ','; j += l.driver;
     j += ','; j += l.deleted ? '1' : '0';
     j += ','; j += cont ? '1' : '0';
+    j += ','; j += l.car;
+    j += ','; j += l.num;
+    j += ','; j += l.precise ? '1' : '0';
+    j += ','; j += (long)(l.endUs / 1000);
     j += ']';
   }
   j += "]}";
@@ -86,15 +134,20 @@ static String buildState() {
 
 static String buildLive() {
   SensorLive l = sensorLive();
+  int64_t now = esp_timer_get_time();
   String j = "{\"t\":\"live\",\"raw\":";
   j += l.raw;
-  j += ",\"base\":";   j += l.base;
-  j += ",\"broken\":"; j += l.broken ? "true" : "false";
-  j += ",\"cur\":";    j += lapsCurrentMs(esp_timer_get_time());
-  j += ",\"noise\":";  j += l.noise;
-  j += ",\"peak\":";   j += l.peak;
+  j += ",\"base\":";    j += l.base;
+  j += ",\"broken\":";  j += l.broken ? "true" : "false";
+  j += ",\"cur\":[";                   // lap in progress per car slot
+  for (int c = 0; c < MAX_CARS; c++) { if (c) j += ','; j += lapsCurrentMs(c, now); }
+  j += "],\"noise\":";  j += l.noise;
+  j += ",\"peak\":";    j += l.peak;
   j += ",\"suggest\":"; j += l.suggest;
-  j += ",\"rssi\":";   j += wlanRssi();
+  j += ",\"irId\":";    j += l.irId;
+  j += ",\"irAgo\":";   j += l.irAgoMs;
+  j += ",\"unident\":"; j += l.unidentified;
+  j += ",\"rssi\":";    j += wlanRssi();
   j += '}';
   return j;
 }
@@ -171,19 +224,32 @@ void webBegin() {
   server.on("/",          HTTP_GET, []() { serveStatic("text/html", INDEX_HTML); });
   server.on("/style.css", HTTP_GET, []() { serveStatic("text/css", STYLE_CSS); });
   server.on("/app.js",    HTTP_GET, []() { serveStatic("application/javascript", APP_JS); });
+  server.on("/race.js",   HTTP_GET, []() { serveStatic("application/javascript", RACE_JS); });
   server.on("/api/state", HTTP_GET, []() { server.send(200, "application/json", buildState()); });
 
   // session
-  server.on("/api/reset",      HTTP_POST, []() { lapsReset(); sendResult(true); });
-  server.on("/api/undo",       HTTP_POST, []() { sendResult(lapsUndo()); });
-  server.on("/api/restart",    HTTP_POST, []() { lapsRestart(); sendResult(true); });
+  server.on("/api/reset",      HTTP_POST, []() { timingNewSession(); sendResult(true); });
+  server.on("/api/undo",       HTTP_POST, []() { sendResult(lapsUndo(argInt("car"))); });
+  server.on("/api/restart",    HTTP_POST, []() { lapsRestart(argInt("car")); sendResult(true); });
   server.on("/api/lap/delete", HTTP_POST, []() { sendResult(lapsDelete(argInt("n"))); });
   server.on("/api/lap/join",   HTTP_POST, []() { sendResult(lapsJoin(argInt("n"))); });
 
   // drivers
   server.on("/api/driver/add",    HTTP_POST, []() { sendResult(driversAdd(server.arg("name")) != 0); });
   server.on("/api/driver/remove", HTTP_POST, []() { sendResult(driversRemove(argInt("id"))); });
-  server.on("/api/driver/select", HTTP_POST, []() { sendResult(driversSelect(argInt("id"))); });
+  server.on("/api/driver/select", HTTP_POST, []() { sendResult(carsSetDriver(argInt("car"), argInt("id"))); });
+
+  // cars and races
+  server.on("/api/car/rename",  HTTP_POST, []() { sendResult(carsRename(argInt("slot"), server.arg("name"))); });
+  server.on("/api/car/remove",  HTTP_POST, []() { sendResult(carsRemove(argInt("slot"))); });
+  server.on("/api/mode",        HTTP_POST, []() { timingSetMulti(argInt("multi") != 0); sendResult(true); });
+  server.on("/api/race/start",  HTTP_POST, []() { timingRaceStart(argInt("laps"), argInt("minutes")); sendResult(true); });
+  server.on("/api/race/stop",   HTTP_POST, []() { timingRaceStop(); sendResult(true); });
+  server.on("/api/usb",         HTTP_POST, []() {
+    settingsSaveMode(settings.multi, argInt("zround") != 0);
+    sendResult(true);
+    zroundApply();
+  });
 
   // settings
   server.on("/api/calibrate", HTTP_POST, []() { sensorCalibrate(); sendResult(true); });

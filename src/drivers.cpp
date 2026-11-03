@@ -1,13 +1,13 @@
 #include "drivers.h"
 #include <Preferences.h>
 #include "config.h"
+#include "cars.h"
 #include "laps.h"
 
 static Preferences prefs;
 static Driver      list[MAX_DRIVERS];
 static int         count    = 0;
 static uint8_t     nextId   = 1;
-static uint8_t     selected = 0;
 
 static int indexOf(uint8_t id) {
   for (int i = 0; i < count; i++) if (list[i].id == id) return i;
@@ -24,7 +24,7 @@ static uint8_t newId() {
 
 // No control characters (names are stored newline-separated), trimmed, at most MAX_NAME bytes
 // without cutting a UTF-8 character in half.
-static String cleanName(const String& in) {
+String driversCleanName(const String& in) {
   String s;
   for (unsigned i = 0; i < in.length(); i++) if ((uint8_t)in[i] >= 0x20) s += in[i];
   s.trim();
@@ -54,22 +54,20 @@ void driversLoad() {
     if (name.length()) list[count++] = { newId(), name };
     start = end + 1;
   }
-  driversSelect(count ? list[0].id : 0);
 }
 
 int           driversCount()      { return count; }
 const Driver& driversAt(int i)    { return list[i]; }
-uint8_t       driversSelected()   { return selected; }
 
 uint8_t driversAdd(const String& name) {
-  String n = cleanName(name);
+  String n = driversCleanName(name);
   if (!n.length() || count >= MAX_DRIVERS) return 0;
   for (int i = 0; i < count; i++) if (list[i].name == n) return 0;
 
   uint8_t id = newId();
   list[count++] = { id, n };
   save();
-  if (selected == 0) driversSelect(id);
+  carsDriverAdded(id);
   return id;
 }
 
@@ -80,13 +78,13 @@ bool driversRemove(uint8_t id) {
   count--;
   save();
   lapsForgetDriver(id);
-  if (selected == id) driversSelect(count ? list[0].id : 0);
+  carsDriverRemoved(id);
   return true;
 }
 
-bool driversSelect(uint8_t id) {
-  if (id != 0 && indexOf(id) < 0) return false;
-  selected = id;
-  lapsSetDriver(id);
-  return true;
+uint8_t driversFind(const String& name) {
+  for (int i = 0; i < count; i++) if (list[i].name == name) return list[i].id;
+  return 0;
 }
+
+bool driversExists(uint8_t id) { return id != 0 && indexOf(id) >= 0; }

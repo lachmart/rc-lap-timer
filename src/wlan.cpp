@@ -3,6 +3,7 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include "config.h"
+#include "log.h"
 #include "settings.h"
 
 // Home network (STA) state machine, runs from wlanLoop() without blocking:
@@ -44,7 +45,7 @@ static void startConnecting() {
   WiFi.begin(settings.ssid.c_str(), settings.pass.c_str());
   sta = Sta::Connecting;
   since = millis();
-  Serial.printf("Connecting to home Wi-Fi '%s'\n", settings.ssid.c_str());
+  LOGF("Connecting to home Wi-Fi '%s'\n", settings.ssid.c_str());
 }
 
 static void stopConnecting(const char* why) {
@@ -52,7 +53,7 @@ static void stopConnecting(const char* why) {
   WiFi.mode(WIFI_AP);
   sta = Sta::Waiting;
   since = millis();
-  Serial.printf("Home Wi-Fi not connected (%s, %s), retrying later\n", why, wlanStaError());
+  LOGF("Home Wi-Fi not connected (%s, %s), retrying later\n", why, wlanStaError());
 }
 
 void wlanBegin() {
@@ -70,7 +71,7 @@ void wlanBegin() {
   dns.start(53, "*", WiFi.softAPIP());                // every domain resolves to us = captive portal
   startMdns();
 
-  Serial.printf("Own Wi-Fi '%s', %s\n", AP_SSID, wlanApUrl().c_str());
+  LOGF("Own Wi-Fi '%s', %s\n", AP_SSID, wlanApUrl().c_str());
   if (settings.ssid.length()) startConnecting();
 }
 
@@ -84,7 +85,7 @@ void wlanApply() {
     WiFi.mode(WIFI_AP);
     sta = Sta::Off;
     startMdns();
-    Serial.println("Home Wi-Fi forgotten, own network only");
+    LOGF("Home Wi-Fi forgotten, own network only\n");
   }
 }
 
@@ -155,7 +156,7 @@ void wlanLoop() {
         staIp = WiFi.localIP().toString();
         lastReason = 0;
         startMdns();                                  // announce laptimer.local on the new network too
-        Serial.printf("Home Wi-Fi OK, http://%s.local or http://%s\n", HOSTNAME, staIp.c_str());
+        LOGF("Home Wi-Fi OK, http://%s.local or http://%s\n", HOSTNAME, staIp.c_str());
       } else if (WiFi.softAPgetStationNum() > 0 && elapsed > 2000) {
         stopConnecting("a phone is on the own network");
       } else if (elapsed >= STA_TIMEOUT) {
@@ -168,7 +169,7 @@ void wlanLoop() {
         staIp = "";
         sta = Sta::Connecting;
         since = millis();
-        Serial.println("Home Wi-Fi lost, reconnecting");
+        LOGF("Home Wi-Fi lost, reconnecting\n");
       }
       break;
 

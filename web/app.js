@@ -1,12 +1,19 @@
 // RC Lap Timer – client. Data over WebSocket (port 81), HTTP polling as fallback.
+// One car (beam only) or several cars with IR transponders; training and races (race.js).
 
 const $ = id => document.getElementById(id);
 const fmt = ms => (ms / 1000).toFixed(3);
 const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const WS_PORT = new URLSearchParams(location.search).get('ws') || 81;   // ?ws= for the mock server
 
+// lap entry fields: [ms, driver, deleted, continues, car, num, precise, endMs]
+const L = { MS: 0, DRIVER: 1, DELETED: 2, CONT: 3, CAR: 4, NUM: 5, PRECISE: 6, END: 7 };
+const STATS_CAR = 0x100;
+
 let S = null;          // latest state from the server
-let cur = 0, at = 0;   // current lap time from the server and when it arrived (extrapolated locally)
+let clockOffset = 0;   // server ms − performance.now()
+let curAt = 0;         // performance.now() when per-car current times arrived
+let curMs = [];        // lap in progress per car slot, from the server
 let seen = -1;         // lap count in the previous state, to detect a new lap
 let cfgLoaded = false; // settings form is filled only once so it doesn't overwrite typing
 let beepOn = false, voiceOn = false, ac = null;
@@ -15,16 +22,42 @@ let lastSsid = null;   // home network shown in the Wi-Fi form
 let rssi = 0;          // home Wi-Fi signal (dBm), 0 = not connected
 let suggested = 0;     // sensitivity suggested by the sensor
 let brokenSince = 0;   // performance.now() when the beam got broken, 0 = clear
-let openLap = 0;       // lap number whose actions are shown in the list
-let medians = {};      // driver id -> median of their counted laps (3+ laps), for "short?"
+let openLap = 0;       // session lap number whose actions are shown in the list
+let openCar = -1;      // car slot whose actions are shown in the track table
+let medians = {};      // stats key -> median of counted laps (3+ laps), for "short?"
+let raceKind = 'laps';
+let lastCount = null;  // countdown second last announced
+let finishSaid = false;
 
-// ---------------------------------------------------------------- helpers
+const serverNow = () => performance.now() + clockOffset;
+
+// ---------------------------------------------------------------- names
 const driverName = id => {
   const d = S && S.drivers.find(d => d.id === id);
   return d ? d.name : '';
 };
-const statsOf = id => S.stats.find(s => s.id === id);
+const carBySlot = slot => S && S.cars.find(c => c.slot === slot);
+function carLabel(car) {
+  if (!car) return 'removed car';
+  if (car.name) return car.name;
+  if (!car.tx) return 'Car';
+  return car.tx >= 0x1000 ? '#' + car.tx.toString(16).toUpperCase() : car.tx + ' Hz';
+}
+// Who is on a car: the driver if assigned, else the car's label.
+const whoOn = slot => {
+  const car = carBySlot(slot);
+  return (car && driverName(car.driver)) || carLabel(car);
+};
+const lapKey = lap => lap[L.DRIVER] || (STATS_CAR | lap[L.CAR]);
+const keyName = key => key & STATS_CAR ? carLabel(carBySlot(key & 0xff)) : driverName(key);
+const statsOf = key => S.stats.find(s => s.key === key);
 const avg = (total, count) => count ? total / count : 0;
+const multi = () => S && S.multi;
+const trackCars = () => S.cars.filter(c => multi() ? c.slot > 0 : c.slot === 0);
+const carCur = slot => {
+  const car = carBySlot(slot);
+  return car && car.running ? (curMs[slot] || 0) + (performance.now() - curAt) : null;
+};
 
 async function api(path, params = {}, question = null) {
   if (question && !confirm(question)) return false;
@@ -80,14 +113,18 @@ document.addEventListener('pointerdown', () => {
   if (voiceOn) speechSynthesis.speak(new SpeechSynthesisUtterance(''));
 }, { once: true });
 
-function beep(best) {
-  if (navigator.vibrate) navigator.vibrate(best ? [80, 60, 80] : 80);
+function tone(freq, secs) {
   if (!beepOn || !ac) return;
   const o = ac.createOscillator(), g = ac.createGain();
-  o.frequency.value = best ? 1320 : 880;
+  o.frequency.value = freq;
   g.gain.value = .2;
   o.connect(g); g.connect(ac.destination);
-  o.start(); o.stop(ac.currentTime + (best ? .35 : .15));
+  o.start(); o.stop(ac.currentTime + secs);
+}
+
+function beep(best) {
+  if (navigator.vibrate) navigator.vibrate(best ? [80, 60, 80] : 80);
+  tone(best ? 1320 : 880, best ? .35 : .15);
 }
 
 function say(text) {
@@ -99,11 +136,52 @@ function say(text) {
 }
 
 function announce(lap, kind) {
-  const name = driverName(lap[1]);
-  let text = (name ? name + ', ' : '') + (lap[0] / 1000).toFixed(2);
+  const name = multi() || S.drivers.length ? whoOn(lap[L.CAR]) : '';
+  let text = (name ? name + ', ' : '') + (lap[L.MS] / 1000).toFixed(2);
   if (kind === 'best') text += ', best lap';
   else if (kind === 'pb') text += ', personal best';
   say(text);
+}
+
+// ---------------------------------------------------------------- lap classification
+function computeMedians() {
+  const by = {};
+  for (const l of S.laps) if (!l[L.DELETED]) (by[lapKey(l)] = by[lapKey(l)] || []).push(l[L.MS]);
+  medians = {};
+  for (const [key, list] of Object.entries(by)) {
+    if (list.length < 3) continue;
+    list.sort((a, b) => a - b);
+    medians[key] = list[Math.floor(list.length / 2)];
+  }
+}
+
+// Much shorter than the usual lap of that driver/car: probably a false trigger split a lap.
+function suspicious(lap) {
+  const m = medians[lapKey(lap)];
+  return m !== undefined && lap[L.MS] < m * 0.6;
+}
+
+// 'best' = best of the session, 'pb' = personal best of the driver/car, '' = neither
+function lapKind(lap) {
+  if (lap[L.DELETED] || suspicious(lap)) return '';
+  if (lap[L.MS] === S.best) return 'best';
+  const st = statsOf(lapKey(lap));
+  return (S.drivers.length || multi()) && st && lap[L.MS] === st.best ? 'pb' : '';
+}
+
+// The same car's next lap that lap i (oldest-first index) can be joined with, -1 if none.
+function joinTarget(i) {
+  const a = S.laps[i];
+  for (let k = i + 1; k < S.laps.length; k++) {
+    const b = S.laps[k];
+    if (b[L.CAR] !== a[L.CAR]) continue;
+    return !a[L.DELETED] && !b[L.DELETED] && a[L.DRIVER] === b[L.DRIVER] && b[L.CONT] === 1 ? k : -1;
+  }
+  return -1;
+}
+function joinSource(i) {
+  for (let k = i - 1; k >= 0; k--) if (S.laps[k][L.CAR] === S.laps[i][L.CAR]) return joinTarget(k) === i ? k : -1;
+  return -1;
 }
 
 // ---------------------------------------------------------------- rendering
@@ -114,7 +192,7 @@ function conn(state) {
 }
 
 function flash(isBest) {
-  for (const [id, base] of [['curCard', 'card'], ['bigView', 'bigview']]) {
+  for (const [id, base] of [['curCard', 'card'], ['trackCard', 'card'], ['raceCard', 'card'], ['bigView', 'bigview']]) {
     const c = $(id);
     c.className = base;
     void c.offsetWidth;                                // restart the animation
@@ -122,32 +200,51 @@ function flash(isBest) {
   }
 }
 
-// 'best' = best of the session, 'pb' = driver's personal best, '' = neither
-function lapKind(lap) {
-  if (lap[2] || suspicious(lap)) return '';
-  if (lap[0] === S.best) return 'best';
-  const st = statsOf(lap[1]);
-  return S.drivers.length && st && lap[0] === st.best ? 'pb' : '';
+const racing = () => S && S.race.state !== 'off';
+
+function renderLayout() {
+  const m = multi(), r = racing();
+  $('raceCard').hidden = !r;
+  $('curCard').hidden = r || m;
+  $('trackCard').hidden = r || !m;
+  $('lastBest').hidden = m || r;
+  $('driversTitle').textContent = m ? 'Drivers' : 'Driving now';
+  $('raceSetup').parentElement.hidden = r;
 }
 
 function renderDrivers() {
+  const m = multi();
+  const car0 = carBySlot(0);
+  $('chips').hidden = m;
   $('chips').innerHTML = S.drivers.length
-    ? S.drivers.map(d => `<button class="chip${d.id === S.driver ? ' on' : ''}" data-id="${d.id}">${esc(d.name)}</button>`).join('')
+    ? S.drivers.map(d => `<button class="chip${car0 && d.id === car0.driver ? ' on' : ''}" data-id="${d.id}">${esc(d.name)}</button>`).join('')
     : '<span class="hint">Nobody yet. Add drivers under Edit drivers to get a leaderboard.</span>';
+
+  // several cars: who drives which car (a driver drives one car at a time)
+  $('carDrivers').hidden = !m;
+  const cars = S.cars.filter(c => c.slot > 0);
+  $('carDrivers').innerHTML = !m ? '' : cars.length
+    ? cars.map(c => `<label>${esc(carLabel(c))}
+        <select data-car="${c.slot}">
+          <option value="0">–</option>
+          ${S.drivers.map(d => `<option value="${d.id}"${d.id === c.driver ? ' selected' : ''}>${esc(d.name)}</option>`).join('')}
+        </select></label>`).join('')
+    : '<p class="hint">No cars yet: drive a car with a transponder past the gate.</p>';
+
   $('dlist').innerHTML = S.drivers
     .map(d => `<li><span>${esc(d.name)}</span><button data-id="${d.id}" title="Remove">✕</button></li>`).join('');
   $('addForm').hidden = S.drivers.length >= 8;
 }
 
 function renderBoard() {
-  const rows = S.stats.filter(s => s.count > 0 && (s.id === 0 || driverName(s.id)))
-    .sort((a, b) => a.best - b.best);
-  $('boardCard').hidden = !S.drivers.length || !rows.length;
+  const rows = S.stats.filter(s => s.count > 0 && keyName(s.key)).sort((a, b) => a.best - b.best);
+  $('boardCard').hidden = racing() || !(S.drivers.length || multi()) || !rows.length;
   const lead = rows.length ? rows[0].best : 0;
+  const nowKeys = S.cars.filter(c => c.driver).map(c => c.driver);
   $('board').innerHTML = rows.map((s, i) => `
-    <tr class="${i === 0 ? 'lead' : ''} ${s.id === S.driver ? 'now' : ''}">
+    <tr class="${i === 0 ? 'lead' : ''} ${nowKeys.includes(s.key) ? 'now' : ''}">
       <td>${i + 1}.</td>
-      <td>${s.id ? esc(driverName(s.id)) : '<span class="hint">no driver</span>'}</td>
+      <td>${esc(keyName(s.key))}</td>
       <td>${fmt(s.best)}</td>
       <td>${i ? '+' + fmt(s.best - lead) : ''}</td>
       <td>${s.count}</td>
@@ -155,54 +252,35 @@ function renderBoard() {
     </tr>`).join('');
 }
 
-// Laps a and b (oldest-first indexes) can be joined: back to back, same driver, both counted.
-function joinable(a, b) {
-  const x = S.laps[a], y = S.laps[b];
-  return x && y && !x[2] && !y[2] && x[1] === y[1] && y[3] === 1;
-}
-
-function computeMedians() {
-  const by = {};
-  for (const l of S.laps) if (!l[2]) (by[l[1]] = by[l[1]] || []).push(l[0]);
-  medians = {};
-  for (const [id, list] of Object.entries(by)) {
-    if (list.length < 3) continue;
-    list.sort((a, b) => a - b);
-    medians[id] = list[Math.floor(list.length / 2)];
-  }
-}
-
-// Much shorter than the driver's typical lap: probably a false trigger split a lap.
-function suspicious(lap) {
-  const m = medians[lap[1]];
-  return m !== undefined && lap[0] < m * 0.6;
-}
-
 function renderLaps() {
-  const first = S.count - S.laps.length + 1;           // number of the oldest lap in the list
-  const named = S.drivers.length > 0;
-  if (openLap && (openLap < first || openLap > S.count || S.laps[openLap - first][2])) openLap = 0;
+  const first = S.count - S.laps.length + 1;           // session number of the oldest lap in the list
+  const named = S.drivers.length > 0 || multi();
+  if (openLap && (openLap < first || openLap > S.count || S.laps[openLap - first][L.DELETED])) openLap = 0;
 
   $('laps').innerHTML = S.laps.map((lap, i) => [first + i, i, lap]).reverse().map(([n, i, lap]) => {
-    const [ms, driver, deleted] = lap;
+    const deleted = lap[L.DELETED];
     const kind = lapKind(lap);
     const short = !deleted && suspicious(lap);
     const cls = deleted ? 'del' : short ? 'short' : kind === 'best' ? 'b' : kind === 'pb' ? 'pb' : '';
-    const diff = deleted ? 'deleted' : short ? 'short?' : kind === 'best' ? '★' : kind === 'pb' ? 'PB' : '+' + fmt(ms - S.best);
+    const diff = deleted ? 'deleted' : short ? 'short?' : kind === 'best' ? '★' : kind === 'pb' ? 'PB' : '+' + fmt(lap[L.MS] - S.best);
+    const num = multi() ? lap[L.NUM] : n;               // several cars: lap number of that car
+    const who = !named ? '' : driverName(lap[L.DRIVER]) || carLabel(carBySlot(lap[L.CAR]));
+    const approx = lap[L.PRECISE] ? '' : '<span class="approx" title="Timed by the transponder only (±35 ms)">~</span>';
     let row = `<li class="lap ${cls}">
-      <span>${n}.</span>
-      <span class="who">${named ? esc(driverName(driver)) : ''}</span>
-      <span>${fmt(ms)}</span>
+      <span>${num}.</span>
+      <span class="who">${esc(who)}</span>
+      <span>${approx}${fmt(lap[L.MS])}</span>
       <span class="d">${diff}</span>
       ${deleted ? '<span></span>' : `<button class="x${openLap === n ? ' on' : ''}" data-open="${n}" title="Fix this lap">⋯</button>`}
     </li>`;
     if (openLap === n) {
-      const prev = joinable(i - 1, i), next = joinable(i, i + 1);
+      const next = joinTarget(i), prev = joinSource(i);
+      const numOf = k => multi() ? S.laps[k][L.NUM] : first + k;
       row += `<li class="acts">
-        ${next ? `<button data-join="${n}">Join with lap ${n + 1}</button>` : ''}
-        ${prev ? `<button data-join="${n - 1}">Join with lap ${n - 1}</button>` : ''}
-        <button class="r" data-del="${n}">Delete lap ${n}</button>
-        <p class="hint">${prev || next
+        ${next >= 0 ? `<button data-join="${n}">Join with lap ${numOf(next)}</button>` : ''}
+        ${prev >= 0 ? `<button data-join="${first + prev}">Join with lap ${numOf(prev)}</button>` : ''}
+        <button class="r" data-del="${n}">Delete lap ${num}</button>
+        <p class="hint">${next >= 0 || prev >= 0
           ? 'Join when a false trigger split one real lap into two.'
           : 'Delete a lap that shouldn\'t count (car cut the track, crash).'}</p>
       </li>`;
@@ -210,6 +288,96 @@ function renderLaps() {
     return row;
   }).join('');
   $('noLaps').hidden = S.laps.length > 0;
+}
+
+// Several cars, training: one row per car. The "now" column is updated by tick().
+function renderTrack() {
+  if (!multi() || racing()) return;
+  const cars = trackCars();
+  if (openCar >= 0 && !carBySlot(openCar)) openCar = -1;
+  $('track').innerHTML = cars.map(c => {
+    const laps = S.laps.filter(l => l[L.CAR] === c.slot && !l[L.DELETED]);
+    const last = laps.length ? laps[laps.length - 1][L.MS] : 0;
+    const best = laps.length ? Math.min(...laps.map(l => l[L.MS])) : 0;
+    let row = `<tr class="${best && best === S.best ? 'lead' : ''}">
+      <td>${esc(whoOn(c.slot))}</td><td>${c.running ? c.laps + 1 : '–'}</td>
+      <td class="now" data-car="${c.slot}">${c.running ? '' : 'waiting'}</td>
+      <td>${last ? fmt(last) : '–'}</td><td>${best ? fmt(best) : '–'}</td>
+      <td><button class="x" data-car="${c.slot}" title="Fix this car's lap">⋯</button></td></tr>`;
+    if (openCar === c.slot) {
+      row += `<tr class="acts"><td colspan="6">
+        <button data-undo="${c.slot}" ${c.canUndo ? '' : 'disabled'}>↶ Undo pass</button>
+        <button data-restart="${c.slot}">⟲ Restart lap</button></td></tr>`;
+    }
+    return row;
+  }).join('') || '<tr><td colspan="6" class="hint">No cars yet: drive a car with a transponder past the gate.</td></tr>';
+  $('trackHint').textContent = S.unident ? `Passes without a transponder: ${S.unident}` : '';
+}
+
+const clock = ms => {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+// Race standings: recomputed on every state and a few times per second for the clock.
+function renderRace() {
+  if (!racing() || !window.Race) return null;
+  const r = Race.standings(S, serverNow());
+  const lapsRace = S.race.laps > 0;
+  const lead = r.rows[0];
+
+  $('raceTitle').textContent = r.phase === 'countdown' ? 'Get ready'
+    : r.allIn ? 'Race finished'
+    : r.finished ? 'Finished, waiting for the others'
+    : lapsRace ? `Race · lap ${Math.min((lead ? lead.laps : 0) + 1, S.race.laps)} / ${S.race.laps}`
+    : `Race · ${S.race.minutes} min`;
+  $('raceClock').textContent = r.phase !== 'running' ? ''
+    : r.finished ? clock(r.finishMs)                    // stopped at the winner's time
+    : r.remainingMs !== null ? clock(r.remainingMs) : clock(r.elapsedMs);
+
+  const secs = Math.ceil(r.countdownMs / 1000);
+  $('countdown').hidden = r.phase !== 'countdown';
+  $('countdown').textContent = secs > 3 ? 'Ready' : secs > 0 ? secs : 'GO';
+  $('standings').innerHTML = r.phase === 'countdown' ? '' : standingsRows(r);
+  $('raceHint').textContent = r.phase === 'countdown' ? 'Crossings before "go" are ignored.'
+    : r.rows.some(x => !x.started) ? 'Each car\'s first crossing starts its timing.' : '';
+  $('raceStop').textContent = r.allIn ? 'Back to training' : 'Stop race';
+  return r;
+}
+
+function standingsRows(r) {
+  return r.rows.map(x => {
+    const last = S.laps.filter(l => l[L.CAR] === x.car && !l[L.DELETED] && l[L.END] > S.race.go).pop();
+    const gap = x.pos === 1 ? '' : x.gapLaps ? `+${x.gapLaps} lap${x.gapLaps > 1 ? 's' : ''}` : x.gapMs ? '+' + fmt(x.gapMs) : '';
+    return `<tr class="${x.pos === 1 && x.started ? 'lead' : ''}">
+      <td>${x.started ? x.pos + '.' : ''}</td>
+      <td>${esc(whoOn(x.car))}${x.finished ? ' 🏁' : ''}</td>
+      <td>${x.laps}</td>
+      <td>${last ? fmt(last[L.MS]) : '–'}</td>
+      <td>${x.bestMs ? fmt(x.bestMs) : '–'}</td>
+      <td>${x.started ? gap : 'not started'}</td></tr>`;
+  }).join('');
+}
+
+function renderCars() {
+  $('multi').checked = !!S.multi;
+  const cars = S.cars.filter(c => c.slot > 0);
+  $('csum').textContent = S.multi ? `· ${cars.length} car${cars.length === 1 ? '' : 's'}` : '';
+  if ($('cars').contains(document.activeElement)) return;   // don't rebuild while a name is being typed
+  $('cars').innerHTML = cars.map(c => `<li>
+      <span class="tx">${c.tx >= 0x1000 ? '#' + c.tx.toString(16).toUpperCase() : c.tx + ' Hz'}</span>
+      <input data-rename="${c.slot}" value="${esc(c.name)}" placeholder="name" maxlength="16">
+      <button data-remove="${c.slot}" title="Remove">✕</button></li>`).join('');
+}
+
+function renderUsb() {
+  const z = S.zround;
+  $('zround').checked = z.on;
+  $('usum').textContent = z.on ? (z.racing ? '· ZRound racing' : z.connected ? '· ZRound connected' : '· waiting for ZRound') : '';
+  $('zstat').className = 'wstat ' + (z.on ? (z.connected ? 'ok' : 'busy') : '');
+  $('zstat').textContent = !z.on ? 'USB port: debug log (115200 baud).'
+    : z.racing ? 'ZRound is running a race, passings are sent.'
+    : z.connected ? 'ZRound is connected.' : 'Waiting for ZRound to connect (19200 baud).';
 }
 
 const signal = dbm => dbm >= -60 ? 4 : dbm >= -70 ? 3 : dbm >= -80 ? 2 : 1;
@@ -259,36 +427,60 @@ function renderNets(list) {
     : '<li class="hint">No networks found. The ESP32 only sees 2.4 GHz Wi-Fi.</li>';
 }
 
+function renderSingle() {
+  const car0 = carBySlot(0);
+  const mine = S.laps.filter(l => l[L.CAR] === 0);
+  const lastLap = mine.length ? mine[mine.length - 1] : null;
+  const last = lastLap && !lastLap[L.DELETED] ? lastLap[L.MS] : 0;
+  const kind = lastLap ? lapKind(lastLap) : '';
+  $('last').textContent  = last ? fmt(last) : '--';
+  $('lastd').textContent = last && last !== S.best ? '+' + fmt(last - S.best) : ' ';
+  $('best').textContent  = S.best ? fmt(S.best) : '--';
+  const holder = S.best ? mine.find(l => !l[L.DELETED] && l[L.MS] === S.best) : null;
+  const valid = mine.filter(l => !l[L.DELETED]);
+  $('bestd').textContent = holder && driverName(holder[L.DRIVER])
+    ? driverName(holder[L.DRIVER])
+    : valid.length ? 'ø ' + fmt(valid.reduce((a, l) => a + l[L.MS], 0) / valid.length) : ' ';
+  $('undo').disabled = !(car0 && car0.canUndo);
+  for (const id of ['last', 'lastd', 'best', 'bestd']) $('bv' + id[0].toUpperCase() + id.slice(1)).textContent = $(id).textContent;
+}
+
 function onState(s) {
   const newLap = seen >= 0 && s.count > seen;
-  seen = s.count; S = s; cur = s.cur; at = performance.now();
+  seen = s.count; S = s;
+  clockOffset = s.now - performance.now();
+  curAt = performance.now();
+  curMs = [];
+  for (const c of s.cars) curMs[c.slot] = c.cur;
+  if (s.race.state !== 'running') finishSaid = false;
   computeMedians();
 
   const lastLap = s.laps.length ? s.laps[s.laps.length - 1] : null;
-  const last = lastLap && !lastLap[2] ? lastLap[0] : 0;
   const kind = lastLap ? lapKind(lastLap) : '';
-  if (newLap && lastLap) { beep(kind !== ''); flash(kind === 'best'); announce(lastLap, kind); }
+  if (newLap && lastLap) {
+    beep(kind !== '');
+    if (!s.multi || kind === 'best') flash(kind === 'best');   // with several cars only a best lap flashes
+    announce(lastLap, kind);
+  }
 
-  $('last').textContent  = last ? fmt(last) : '--';
-  $('lastd').textContent = last && kind !== 'best' ? '+' + fmt(last - s.best) : ' ';
-  $('best').textContent  = s.best ? fmt(s.best) : '--';
-  const holder = s.best ? s.laps.find(l => !l[2] && l[0] === s.best) : null;
-  const valid = s.laps.filter(l => !l[2]);
-  $('bestd').textContent = holder && driverName(holder[1])
-    ? driverName(holder[1])
-    : valid.length ? 'ø ' + fmt(valid.reduce((a, l) => a + l[0], 0) / valid.length) : ' ';
-
-  $('undo').disabled = !s.canUndo;
+  renderLayout();
+  renderSingle();
   renderDrivers();
   renderBoard();
   renderLaps();
+  renderTrack();
+  renderRace();
+  renderCars();
+  renderUsb();
   renderWifi();
   $('ign').textContent = s.ignored;
-  for (const id of ['last', 'lastd', 'best', 'bestd']) $('bv' + id[0].toUpperCase() + id.slice(1)).textContent = $(id).textContent;
 
   if (!cfgLoaded) {
     $('minLap').value = s.minLap / 1000;
     $('delta').value = s.delta;
+    raceKind = s.race.setMin && !s.race.setLaps ? 'minutes' : 'laps';
+    $('raceLen').value = raceKind === 'minutes' ? s.race.setMin : s.race.setLaps;
+    renderRaceKind();
     cfgLoaded = true;
   }
   if (s.ssid !== lastSsid && document.activeElement !== $('ssid')) {   // also when changed from another phone
@@ -298,7 +490,7 @@ function onState(s) {
 }
 
 function onLive(l) {
-  cur = l.cur; at = performance.now();
+  curMs = l.cur; curAt = performance.now();
   $('raw').textContent = l.raw;
   $('base').textContent = l.base;
   $('beam').textContent = l.broken ? 'broken' : 'clear';
@@ -307,6 +499,16 @@ function onLive(l) {
   if (l.rssi !== rssi) { rssi = l.rssi || 0; renderBars(); }
   renderTuning(l);
   renderBeamWarning(l.broken);
+  renderIr(l);
+}
+
+function renderIr(l) {
+  const ago = l.irAgo;
+  const id = l.irId >= 0x1000 ? '#' + l.irId.toString(16).toUpperCase() : l.irId + ' Hz';
+  $('irStat').className = 'wstat ' + (l.irId && ago < 2000 ? 'ok' : '');
+  $('irStat').textContent = (!l.irId ? 'IR receiver: no transponder seen yet.'
+    : `IR receiver: last transponder ${id}, ${ago < 1000 ? 'just now' : Math.round(ago / 1000) + ' s ago'}.`)
+    + (l.unident ? ` Passes without a transponder: ${l.unident}.` : '');
 }
 
 // Band around idle where nothing triggers; the green marker leaving it = beam broken.
@@ -331,34 +533,89 @@ function renderTuning(l) {
 }
 
 // Beam broken for a long time: the laser got knocked off aim or something sits in the gate.
-// Nothing is counted until it clears, so say so loudly.
 function renderBeamWarning(broken) {
   const now = performance.now();
   if (!broken) brokenSince = 0;
   else if (!brokenSince) brokenSince = now;
   const secs = brokenSince ? Math.round((now - brokenSince) / 1000) : 0;
   const blocked = secs >= 3;
-  const msg = `Beam blocked for ${secs} s, laps aren't counted. Check the laser aim or clear the gate.`;
-  for (const id of ['beamWarn', 'bvWarn']) {
+  const msg = `Beam blocked for ${secs} s, ${multi() ? 'passes are timed by transponder only' : 'laps aren\'t counted'}. `
+    + 'Check the laser aim or clear the gate.';
+  for (const id of ['beamWarn', 'beamWarn2', 'bvWarn']) {
     $(id).hidden = !blocked;
     if (blocked) $(id).textContent = msg;
   }
   $('ssum').textContent = blocked ? '· beam blocked' : '';
 }
 
+// ---------------------------------------------------------------- every frame
 function tick() {
-  const who = S ? driverName(S.driver) : '';
-  const running = S && S.running;
-  const time = running ? fmt(cur + (performance.now() - at)) : '--.---';
-  const lap = running ? 'Lap ' + (S.count + 1) : 'Waiting for start pass';
-  $('cur').textContent = time;
-  $('state').textContent = lap + (who ? ' · ' + who : '');
-  if (!$('bigView').hidden) {
-    $('bvCur').textContent = time;
-    $('bvLap').textContent = lap;
-    $('bvDriver').textContent = who;
+  if (S) {
+    const car0 = carBySlot(0);
+    const who = car0 ? driverName(car0.driver) : '';
+    const t0 = carCur(0);
+    const time = t0 !== null ? fmt(t0) : '--.---';
+    const lap = t0 !== null ? 'Lap ' + ((car0 ? car0.laps : 0) + 1) : 'Waiting for start pass';
+    $('cur').textContent = time;
+    $('state').textContent = lap + (who ? ' · ' + who : '');
+    for (const td of document.querySelectorAll('#track td.now')) {
+      const t = carCur(+td.dataset.car);
+      if (t !== null) td.textContent = fmt(t);
+    }
+    const bigMulti = multi() || racing();
+    if (!$('bigView').hidden) {
+      $('bvSingle').hidden = bigMulti;
+      $('bvMulti').hidden = !bigMulti;
+      if (!bigMulti) {
+        $('bvCur').textContent = time;
+        $('bvLap').textContent = lap;
+        $('bvDriver').textContent = who;
+      }
+    }
   }
   requestAnimationFrame(tick);
+}
+
+// Race clock, countdown voice and the big table: a few times per second is enough.
+setInterval(() => {
+  if (!S) return;
+  const r = renderRace();
+  if (r && r.phase === 'countdown') {
+    const secs = Math.ceil(r.countdownMs / 1000);
+    if (secs !== lastCount && secs <= 3) { lastCount = secs; say(String(secs)); tone(660, .15); }
+  } else if (r && r.phase === 'running' && lastCount !== null) {
+    lastCount = null;
+    say('Go'); tone(1320, .5);
+    if (navigator.vibrate) navigator.vibrate(300);
+  }
+  if (r && r.finished && !finishSaid) {
+    finishSaid = true;
+    say(`Race finished. Winner, ${whoOn(r.rows[0].car)}`);
+  }
+  if (!$('bigView').hidden && (multi() || racing())) renderBigTable(r);
+}, 250);
+
+function renderBigTable(r) {
+  if (r) {
+    $('bvTitle').textContent = $('raceTitle').textContent;
+    $('bvClock').textContent = $('raceClock').textContent;
+    $('bvCount').hidden = $('countdown').hidden;
+    $('bvCount').textContent = $('countdown').textContent;
+    $('bvRows').innerHTML = r.rows.filter(x => x.started).map(x => `<tr class="${x.pos === 1 ? 'lead' : ''}">
+      <td>${x.pos}.</td><td class="name">${esc(whoOn(x.car))}${x.finished ? ' 🏁' : ''}</td><td>${x.laps}</td>
+      <td>${x.pos === 1 ? '' : x.gapLaps ? '+' + x.gapLaps + 'L' : '+' + fmt(x.gapMs)}</td></tr>`).join('');
+  } else {
+    $('bvTitle').textContent = 'Training';
+    $('bvClock').textContent = '';
+    $('bvCount').hidden = true;
+    $('bvRows').innerHTML = '<tr><th>Car</th><th>Now</th><th>Last</th></tr>' + trackCars().map(c => {
+      const laps = S.laps.filter(l => l[L.CAR] === c.slot && !l[L.DELETED]);
+      const last = laps.length ? laps[laps.length - 1][L.MS] : 0;
+      const t = carCur(c.slot);
+      return `<tr><td class="name">${esc(whoOn(c.slot))}</td><td>${t !== null ? fmt(t).slice(0, -2) : '–'}</td>
+        <td>${last ? fmt(last) : '–'}</td></tr>`;
+    }).join('');
+  }
 }
 
 // ---------------------------------------------------------------- big view
@@ -393,9 +650,9 @@ function startPoll() { if (!pollT) { conn('off'); poll(); pollT = setInterval(po
 function stopPoll() { clearInterval(pollT); pollT = null; }
 
 // ---------------------------------------------------------------- actions
-$('undo').onclick    = () => api('undo');
-$('restart').onclick = () => api('restart');
-$('reset').onclick   = () => api('reset', {}, 'Start a new session? All laps and the leaderboard are cleared, drivers stay.');
+$('undo').onclick    = () => api('undo', { car: 0 });
+$('restart').onclick = () => api('restart', { car: 0 });
+$('reset').onclick   = () => api('reset', {}, 'Start a new session? All laps and the leaderboard are cleared, drivers and cars stay.');
 $('calibrate').onclick = () => api('calibrate');
 $('useSuggest').onclick = async () => {
   if (suggested > 0 && await api('config', { minLap: S.minLap, delta: suggested })) cfgLoaded = false;
@@ -408,9 +665,23 @@ $('laps').onclick = e => {
   if (del)  { openLap = 0; api('lap/delete', { n: del }); }
 };
 
+$('track').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.car !== undefined) { openCar = openCar === +b.dataset.car ? -1 : +b.dataset.car; renderTrack(); }
+  if (b.dataset.undo !== undefined) { openCar = -1; api('undo', { car: b.dataset.undo }); }
+  if (b.dataset.restart !== undefined) { openCar = -1; api('restart', { car: b.dataset.restart }); }
+};
+
 $('chips').onclick = e => {
   const id = e.target.dataset.id;
-  if (id && +id !== S.driver) api('driver/select', { id });
+  const car0 = carBySlot(0);
+  if (id && car0 && +id !== car0.driver) api('driver/select', { id, car: 0 });
+};
+
+$('carDrivers').onchange = e => {
+  const sel = e.target.closest('select');
+  if (sel) api('driver/select', { id: sel.value, car: sel.dataset.car });
 };
 
 $('dlist').onclick = e => {
@@ -424,10 +695,44 @@ $('addForm').onsubmit = async e => {
   if (!name) return;
   if (await api('driver/add', { name })) {
     $('newName').value = '';
-    $('dmsg').textContent = 'Switching driver drops the lap in progress, the next pass starts the new driver\'s lap.';
+    $('dmsg').textContent = 'Switching driver drops that car\'s lap in progress, its next pass starts the new driver\'s lap.';
   } else {
     $('dmsg').textContent = `Couldn't add "${name}": the name is taken or there are already 8 drivers.`;
   }
+};
+
+$('multi').onchange  = e => api('mode', { multi: e.target.checked ? 1 : 0 });
+$('zround').onchange = e => api('usb', { zround: e.target.checked ? 1 : 0 });
+
+$('cars').onchange = e => {
+  const slot = e.target.dataset.rename;
+  if (slot) api('car/rename', { slot, name: e.target.value.trim() });
+};
+$('cars').onclick = e => {
+  const slot = e.target.dataset.remove;
+  if (slot) api('car/remove', { slot }, `Remove ${carLabel(carBySlot(+slot))}? It comes back when its transponder passes the gate again.`);
+};
+
+function renderRaceKind() {
+  for (const b of $('raceKind').children) b.classList.toggle('on', b.dataset.kind === raceKind);
+  $('raceLenLbl').textContent = raceKind === 'laps' ? 'Number of laps' : 'Minutes';
+}
+$('raceKind').onclick = e => {
+  const kind = e.target.dataset.kind;
+  if (!kind) return;
+  raceKind = kind;
+  $('raceLen').value = kind === 'laps' ? (S.race.setLaps || 10) : (S.race.setMin || 5);
+  renderRaceKind();
+};
+$('raceStart').onclick = () => {
+  const n = Math.max(1, Math.round(+$('raceLen').value || 0));
+  const params = raceKind === 'laps' ? { laps: n, minutes: 0 } : { laps: 0, minutes: n };
+  unlockAudio();
+  api('race/start', params, `Start a ${n} ${raceKind === 'laps' ? 'lap' : 'minute'} race? The current session is cleared.`);
+};
+$('raceStop').onclick = () => {
+  const done = $('raceStop').textContent === 'Back to training';
+  api('race/stop', {}, done ? null : 'Stop the race? The laps stay.');
 };
 
 $('save').onclick = async () => {

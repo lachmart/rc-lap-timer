@@ -1,6 +1,7 @@
 # RC Lap Timer
 
-Lap timer for an RC car with drivers taking turns. ESP32 + laser beam gate + web app on a phone over Wi-Fi.
+Lap timer for RC cars: one car with drivers taking turns, or several cars at once with IR transponders.
+Training and races. ESP32 + laser beam gate + IR receiver + web app on a phone over Wi-Fi.
 
 ## Parts
 
@@ -9,6 +10,7 @@ Lap timer for an RC car with drivers taking turns. ESP32 + laser beam gate + web
 - LDR photoresistor (e.g. GL5528)
 - 10 kΩ resistor
 - black tube 2–3 cm long over the LDR (shields ambient light)
+- for several cars: IR receiver **TSOP38238** (38 kHz) + one [transponder](transponder/README.md) per car (~€1.2 each)
 
 **LDR vs. phototransistor.** An LDR reacts slowly (GL5528: ~20–30 ms), and a fast car blocks the beam
 for about as long (40 cm car at 50 km/h ≈ 30 ms). The LDR then only partly darkens: fast passes show
@@ -24,6 +26,8 @@ Aim the beam at the height of the car body, not between the wheels.
              └── 10 kΩ ── GND
 
 Laser  VCC → 5V (or 3V3), GND → GND
+
+TSOP38238  OUT → GPIO 33, VS → 3V3, GND → GND      (only for several cars)
 ```
 
 On the 30-pin DevKit board: **D32** is on the left side, 10th pin from the bottom; **3V3** is the bottom-right pin;
@@ -35,6 +39,12 @@ The sensor must be on ADC1 (GPIO 32–39); ADC2 doesn't work while Wi-Fi is runn
 Wiring polarity doesn't matter. The code watches the deviation from the idle value, not an absolute threshold.
 The board's blue LED (GPIO 2) lights while the beam is broken, which helps with aiming.
 
+**IR receiver (several cars).** D33 is right next to D32 (9th pin from the bottom on the left).
+Mount the TSOP38238 next to the laser at car height, inside a short black tube aimed across the track, so it
+only sees the cars around the finish line (about 1 m of track). Transponders go on the side of the car that
+faces the gate. Details and the transponder circuit: [transponder/README.md](transponder/README.md),
+design: [docs/multi-car.md](docs/multi-car.md).
+
 ## Project layout
 
 ```
@@ -43,10 +53,15 @@ src/
   main.cpp         setup() / loop(), wires the modules together
   config.h         fixed constants (pins, AP name, limits, defaults)
   settings.*       user settings in flash (Preferences)
-  sensor.*         LDR sampling task, beam LED
+  sensor.*         the gate: LDR + IR receiver task, beam LED
   beam.*           beam break detection, noise / pass depth, suggested sensitivity (unit-tested)
-  laps.*           laps, per-driver stats, corrections (no hardware deps, unit-tested)
-  drivers.*        driver names in flash, who's driving
+  nec.*, blink.*   transponder decoders: RiCino NEC code, NE556 blink rate (unit-tested)
+  passes.*         beam breaks + transponder sightings → passings (unit-tested)
+  timing.*         passings → cars → laps, single/multi-car mode, races
+  laps.*           per-car laps, per-driver stats, corrections (unit-tested)
+  cars.*           transponder cars (learned, saved), who drives which car
+  drivers.*        driver names in flash
+  zround.*         USB: debug log or ZRound decoder protocol
   wlan.*           Wi-Fi AP + captive portal, home Wi-Fi in the background, mDNS
   ota.*            firmware upload over Wi-Fi
   web.*            HTTP server, API, WebSocket
@@ -54,7 +69,10 @@ web/
   index.html       the phone app
   style.css
   app.js
-test/              unit tests for laps.cpp and beam.cpp (run on the Mac)
+  race.js          race standings (unit-tested with node)
+transponder/       ATtiny202 transponder firmware + circuit (separate PlatformIO project)
+docs/multi-car.md  multi-car design
+test/              unit tests (C++ for the firmware modules, JS for race.js)
 tools/
   mock_server.py   fake timer for trying the app without the board
 ```
@@ -80,14 +98,17 @@ to RC_Lap_Timer and run `pio run -e ota -t upload`. On the home network use
 ## Develop without the board
 
 ```
-pio test -e native                                  # unit tests of lap and beam logic
+pio test -e native                                  # firmware unit tests (laps, beam, decoders, passes)
+node --test test/js/*.test.js                       # race standings tests
 python3 tools/mock_server.py --drivers Martin,Jana  # fake timer with a simulated car
+python3 tools/mock_server.py --cars 5 --drivers Martin,Jana,Tom,Eva,Petr   # five transponder cars
 ```
 
 The mock serves `web/` straight from disk (edit, reload), fakes the whole API and WebSocket,
 and drives a simulated car with an occasional false trigger. Open `http://localhost:8080`,
 or on the phone the address it prints. `--manual` turns the car off; trigger passes with
-`curl -X POST localhost:8080/mock/cross`. `POST /mock/block?on=1` holds the beam broken.
+`curl -X POST localhost:8080/mock/cross` (add `?tx=4097` for a transponder car). `POST /mock/block?on=1`
+holds the beam broken.
 
 ## Usage
 
@@ -104,6 +125,32 @@ by best lap, with gap, lap count and average. Switching driver drops the lap in 
 starts the new driver's lap. **New session** clears laps and the leaderboard, drivers stay.
 
 Without any drivers it works as a plain lap timer.
+
+### Several cars
+
+In the **Cars** section switch on **Several cars with IR transponders**. Every transponder is learned
+automatically the first time it passes the gate and shows up as a car (`#1001` for RiCino ids, `465 Hz` for
+NE556 blink transponders). Give it a name there, and pick who drives it under **Drivers** (one dropdown per
+car; a driver drives one car at a time). The **On track** table shows each car's lap, current time, last and
+best lap; **⋯** on a row has Undo pass / Restart lap for that car.
+
+The laser gives the precise time; the transponder only tells which car it was. A pass the beam didn't see
+(cars side by side) is still counted from the transponder, marked **~** (±35 ms). Beam breaks without any
+transponder near (a person, a car without one) are counted as "passes without a transponder".
+
+### Races
+
+Open **Race**, choose a number of laps or minutes and **Start race**. The session is cleared and a
+countdown runs (3, 2, 1, go, also by voice). Crossings before "go" are ignored; each car's first crossing
+after "go" starts its timing. Standings: more laps first, then whoever crossed the line earlier. The race
+ends when the leader completes the last lap (or, in a time race, crosses the line after the time is up);
+every other car finishes at its next crossing (🏁). **Stop race** / **Back to training** returns to
+training, the laps stay. Undo, join and delete also work in a race; the standings follow.
+
+### ZRound
+
+In **USB / ZRound** the timer becomes a ZRound decoder on the USB port (RiCino protocol, 19200 baud).
+ZRound then runs its own races; the app keeps working. The USB port has no debug log in this mode.
 
 ### Fixing false passes
 
@@ -125,8 +172,9 @@ after the first tap on the page.
 
 ### Big view
 
-**⛶** next to the connection dot opens a full-screen view with large digits (current lap, last,
-best, driver), readable from a distance with the phone propped up. Tap to close.
+**⛶** next to the connection dot opens a full-screen view with large digits, readable from a distance
+with the phone propped up: current lap, last and best with one car; the cars table in training with
+several cars; the countdown and standings in a race. Tap to close.
 
 ### Sensor and tuning
 
@@ -168,21 +216,28 @@ and reconnects the WebSocket. The dot in the top right shows the connection stat
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/state` | full state (laps, drivers, stats, settings) |
-| POST | `/api/reset` | new session |
-| POST | `/api/undo` | undo the last pass |
-| POST | `/api/restart` | drop the lap in progress |
-| POST | `/api/lap/delete?n=5` | delete lap 5 |
-| POST | `/api/lap/join?n=5` | join lap 5 with lap 6 |
+| GET | `/api/state` | full state (cars, laps, drivers, stats, race, settings) |
+| POST | `/api/reset` | new session (also ends a race) |
+| POST | `/api/undo?car=0` | undo the car's last pass (car = slot, 0 = the beam-only car) |
+| POST | `/api/restart?car=0` | drop the car's lap in progress |
+| POST | `/api/lap/delete?n=5` | delete session lap 5 |
+| POST | `/api/lap/join?n=5` | join session lap 5 with the same car's next lap |
 | POST | `/api/driver/add?name=Jana` | add a driver |
 | POST | `/api/driver/remove?id=2` | remove a driver |
-| POST | `/api/driver/select?id=2` | who's driving now (0 = nobody) |
+| POST | `/api/driver/select?id=2&car=0` | who drives the car (0 = nobody) |
+| POST | `/api/car/rename?slot=1&name=Buggy` | name a transponder car |
+| POST | `/api/car/remove?slot=1` | forget a transponder car |
+| POST | `/api/mode?multi=1` | several cars with transponders (1) or one beam-only car (0) |
+| POST | `/api/race/start?laps=10&minutes=0` | new session + countdown; laps or minutes |
+| POST | `/api/race/stop` | back to training, laps stay |
+| POST | `/api/usb?zround=1` | USB port: ZRound decoder (1) or debug log (0) |
 | POST | `/api/calibrate` | calibrate idle |
 | POST | `/api/config?minLap=2000&delta=800` | settings (ms, ADC) |
 | POST | `/api/wifi?ssid=...&pass=...` | join a home network, applied without restart; no `pass` = keep the saved one; empty ssid = forget |
 | POST | `/api/wifi/scan` | start a network scan (400 while connecting) |
 | GET | `/api/wifi/scan` | `{"scanning":false,"networks":[{"ssid","rssi","open"}]}` |
-| WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` (raw, base, broken, noise, peak, suggest, rssi, cur) |
+| WS | `ws://<ip>:81/` | messages `{"t":"state",...}` and `{"t":"live",...}` (raw, base, broken, noise, peak, suggest, irId, irAgo, unident, rssi, cur per car slot) |
 
 Failed actions (unknown lap, duplicate name, …) answer `400 {"ok":false}`.
-In the state, each lap is `[ms, driverId, deleted, continuesPrevious]`, oldest first.
+In the state, each lap is `[ms, driverId, deleted, continuesPrevious, car, lapNumberOfCar, precise, endMs]`,
+oldest first; `now` is the timer's clock in ms, so end times and `race.go` can be compared with it.

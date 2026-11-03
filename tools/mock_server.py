@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Mock RC Lap Timer: serves web/ and fakes the ESP32 API + WebSocket, no board needed.
 
-    python3 tools/mock_server.py            # simulated car drives laps
-    python3 tools/mock_server.py --manual   # no simulation, trigger passes yourself:
-                                            #   curl -X POST localhost:8080/mock/cross
+    python3 tools/mock_server.py                      # one simulated car, beam only
+    python3 tools/mock_server.py --cars 5             # five transponder cars (multi-car mode)
+    python3 tools/mock_server.py --manual             # no simulation, trigger passes yourself:
+                                                      #   curl -X POST localhost:8080/mock/cross
+                                                      #   curl -X POST 'localhost:8080/mock/cross?tx=6969'
 
 Open http://localhost:8080 (or http://<this Mac's IP>:8080 on the phone).
 The page connects the WebSocket to port 81 like on the ESP32. If port 81 can't be bound,
 the mock uses 8081 and the page must be opened with ?ws=8081.
 
-Lap logic mirrors src/laps.cpp and src/drivers.cpp; keep them in sync when changing behaviour.
-Standard library only (Python 3.9+).
+Logic mirrors src/laps.cpp, src/cars.cpp, src/drivers.cpp, src/timing.cpp and src/wlan.cpp;
+keep them in sync when changing behaviour. Standard library only (Python 3.9+).
 """
 import argparse
 import base64
@@ -26,7 +28,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 WEB = Path(__file__).resolve().parent.parent / "web"
-MAX_LAPS, MAX_DRIVERS, MAX_NAME = 200, 8, 32
+MAX_LAPS, MAX_DRIVERS, MAX_CARS, MAX_NAME = 200, 8, 8, 32
+STATS_CAR = 0x100
+RACE_COUNTDOWN_MS = 4000
 LIVE_EVERY = 0.2
 FAKE_NETWORKS = {                  # name -> (rssi dBm, open)
     "Lach Home": (-52, False),
@@ -34,6 +38,11 @@ FAKE_NETWORKS = {                  # name -> (rssi dBm, open)
     "Cafe Free WiFi": (-83, True),
     "Very long network name for testing": (-66, False),
 }
+SIM_TRANSPONDERS = [0x1B39, 0x2A10, 0x3C55, 465, 576, 0x4D01, 0x5E22]   # RiCino ids and NE556 blink rates
+
+
+def now_us():
+    return int(time.monotonic() * 1e6)
 
 
 def suggest_delta(noise, peak):
@@ -47,25 +56,41 @@ def suggest_delta(noise, peak):
     return min(max(s, 50), 4000)
 
 
-def now_us():
-    return int(time.monotonic() * 1e6)
+def clean_name(name):
+    name = "".join(c for c in name if ord(c) >= 0x20).strip()
+    while len(name.encode()) > MAX_NAME:
+        name = name[:-1]
+    return name.strip()
+
+
+class Car:
+    def __init__(self, tx=0, name=""):
+        self.tx, self.name, self.driver = tx, name, 0
+        self.last_cross = self.prev_cross = 0
+        self.last_pass = None              # None | "start" | "lap"
+        self.num = 0
 
 
 class Timer:
-    """Same behaviour as laps.cpp + drivers.cpp + settings.cpp, guarded by one lock."""
+    """Same behaviour as the firmware, guarded by one lock."""
 
     def __init__(self):
         self.lock = threading.RLock()
         self.min_lap, self.delta = 2000, 800
+        self.multi, self.zround = False, False
+        self.race_laps, self.race_min = 10, 0
+        self.race = {"state": "off", "go": 0, "laps": 0, "minutes": 0}
         self.ssid, self.password, self.sta, self.sta_err = "", "", "off", ""
-        self.scan_until = 0          # monotonic time when the fake scan finishes, 0 = idle
-        self.drivers = []          # [{"id", "name"}]
+        self.scan_until = 0
+        self.drivers = []                  # [{"id", "name"}]
         self.next_id = 1
-        self.driver = 0
+        self.cars = {0: Car()}             # slot -> Car; slot 0 = beam-only car
         self.revision = 0
         self.raw, self.base, self.broken = 3000, 3000, False
         self.noise, self.peak, self.blocked = 25, 0, False
-        self.reset()
+        self.ir_id, self.ir_us, self.unident = 0, 0, 0
+        self.laps = []                     # dicts: ms num car driver deleted precise end
+        self.ignored = 0
 
     def changed(self):
         self.revision += 1
@@ -73,131 +98,136 @@ class Timer:
     # ------------------------------------------------------------ laps.cpp
     def reset(self):
         with self.lock:
-            self.last_cross = 0
-            self.prev_cross = 0
-            self.last_pass = None   # None | "start" | "lap"
-            self.laps = []          # [ms, driver, deleted, end_us]
-            self.ignored = 0
-            self.stats = {}         # id -> {"count", "best", "total"}
+            for c in self.cars.values():
+                c.last_cross = c.prev_cross = 0
+                c.last_pass, c.num = None, 0
+            self.laps, self.ignored, self.unident = [], 0, 0
             self.changed()
 
-    def oldest_kept(self):
-        return max(0, len(self.laps) - MAX_LAPS)
+    def kept(self):
+        return self.laps[-MAX_LAPS:]
 
-    def recompute_best(self, did):
-        kept = self.laps[self.oldest_kept():]
-        times = [l[0] for l in kept if not l[2] and l[1] == did]
-        self.stats[did]["best"] = min(times) if times else 0
-
-    def remove_from_stats(self, lap):
-        st = self.stats.get(lap[1])
-        if not st:
-            return
-        st["count"] -= 1
-        st["total"] -= lap[0]
-        if st["best"] == lap[0]:
-            self.recompute_best(lap[1])
-
-    def crossing(self, t=None):
-        t = t or now_us()
+    def crossing(self, slot, t, precise=True):
         with self.lock:
-            if self.last_cross == 0:
-                self.last_cross, self.prev_cross, self.last_pass = t, 0, "start"
-            elif t - self.last_cross >= self.min_lap * 1000:
-                ms = (t - self.last_cross + 500) // 1000
-                self.laps.append([ms, self.driver, False, t])
-                st = self.stats.setdefault(self.driver, {"count": 0, "best": 0, "total": 0})
-                st["count"] += 1
-                st["total"] += ms
-                if st["best"] == 0 or ms < st["best"]:
-                    st["best"] = ms
-                self.prev_cross, self.last_cross, self.last_pass = self.last_cross, t, "lap"
+            c = self.cars.get(slot)
+            if c is None:
+                return
+            if c.last_cross == 0:
+                c.last_cross, c.prev_cross, c.last_pass = t, 0, "start"
+            elif t - c.last_cross >= self.min_lap * 1000:
+                c.num += 1
+                self.laps.append({"ms": (t - c.last_cross + 500) // 1000, "num": c.num, "car": slot,
+                                  "driver": c.driver, "deleted": False, "precise": precise, "end": t})
+                c.prev_cross, c.last_cross, c.last_pass = c.last_cross, t, "lap"
             else:
                 self.ignored += 1
             self.changed()
 
-    def set_driver(self, did):
-        with self.lock:
-            if did != self.driver:
-                self.driver, self.last_cross, self.last_pass = did, 0, None
-                self.changed()
+    def set_driver(self, slot, did):
+        c = self.cars[slot]
+        if did != c.driver:
+            c.driver, c.last_cross, c.last_pass = did, 0, None
+            self.changed()
 
-    def undo(self):
+    def last_lap_index(self, slot):
+        for i in range(len(self.laps) - 1, -1, -1):
+            if self.laps[i]["car"] == slot:
+                return i
+        return -1
+
+    def undo(self, slot):
         with self.lock:
-            if self.last_pass == "start":
-                self.last_cross = 0
-            elif self.last_pass == "lap":
-                lap = self.laps.pop()
-                if not lap[2]:
-                    self.remove_from_stats(lap)
-                self.last_cross = self.prev_cross
+            c = self.cars.get(slot)
+            if c is None:
+                return False
+            if c.last_pass == "start":
+                c.last_cross = 0
+            elif c.last_pass == "lap" and self.last_lap_index(slot) >= 0:
+                del self.laps[self.last_lap_index(slot)]
+                c.num -= 1
+                c.last_cross = c.prev_cross
             else:
                 return False
-            self.last_pass = None
+            c.last_pass = None
             self.changed()
             return True
 
-    def restart(self):
+    def restart(self, slot):
         with self.lock:
-            self.last_cross, self.last_pass = 0, None
-            self.changed()
+            if slot in self.cars:
+                self.cars[slot].last_cross, self.cars[slot].last_pass = 0, None
+                self.changed()
 
-    def delete(self, n):
+    def delete(self, seq):
         with self.lock:
-            if not (self.oldest_kept() < n <= len(self.laps)) or self.laps[n - 1][2]:
+            i = seq - 1
+            if not (max(0, len(self.laps) - MAX_LAPS) <= i < len(self.laps)) or self.laps[i]["deleted"]:
                 return False
-            lap = self.laps[n - 1]
-            lap[2] = True
-            self.remove_from_stats(lap)
-            if n == len(self.laps) and self.last_pass == "lap":
-                self.last_pass = None
+            lap = self.laps[i]
+            lap["deleted"] = True
+            c = self.cars.get(lap["car"])
+            if c and i == self.last_lap_index(lap["car"]) and c.last_pass == "lap":
+                c.last_pass = None
             self.changed()
             return True
 
     @staticmethod
     def continues(prev, nxt):
-        return abs(nxt[3] - nxt[0] * 1000 - prev[3]) <= 1000
+        return abs(nxt["end"] - nxt["ms"] * 1000 - prev["end"]) <= 1000
 
-    def join(self, n):
+    def join(self, seq):
         with self.lock:
-            i = n - 1
-            if not (self.oldest_kept() <= i < len(self.laps) - 1):
+            i = seq - 1
+            if not (max(0, len(self.laps) - MAX_LAPS) <= i < len(self.laps)):
                 return False
-            a, b = self.laps[i], self.laps[i + 1]
-            if a[2] or b[2] or a[1] != b[1] or not self.continues(a, b):
+            a = self.laps[i]
+            j = next((k for k in range(i + 1, len(self.laps)) if self.laps[k]["car"] == a["car"]), -1)
+            if j < 0:
                 return False
-            a[2] = True
-            self.remove_from_stats(a)
-            del self.laps[i + 1]
-            self.remove_from_stats(b)
-            self.laps[i] = [a[0] + b[0], a[1], False, b[3]]
-            st = self.stats.setdefault(a[1], {"count": 0, "best": 0, "total": 0})
-            st["count"] += 1
-            st["total"] += self.laps[i][0]
-            if st["best"] == 0 or self.laps[i][0] < st["best"]:
-                st["best"] = self.laps[i][0]
-            if self.last_pass == "lap" and i == len(self.laps) - 1:
-                self.prev_cross = a[3] - a[0] * 1000
+            b = self.laps[j]
+            if a["deleted"] or b["deleted"] or a["driver"] != b["driver"] or not self.continues(a, b):
+                return False
+            c = self.cars[a["car"]]
+            b_was_last = j == self.last_lap_index(a["car"])
+            del self.laps[j]
+            for lap in self.laps[j:]:
+                if lap["car"] == a["car"]:
+                    lap["num"] -= 1
+            c.num -= 1
+            a.update(ms=a["ms"] + b["ms"], end=b["end"], precise=a["precise"] and b["precise"])
+            if b_was_last and c.last_pass == "lap":
+                c.prev_cross = a["end"] - a["ms"] * 1000
             self.changed()
             return True
 
-    def cur_ms(self):
-        return (now_us() - self.last_cross) // 1000 if self.last_cross else 0
+    def stats(self):
+        by = {}
+        for lap in self.kept():
+            if lap["deleted"]:
+                continue
+            key = lap["driver"] or (STATS_CAR | lap["car"])
+            s = by.setdefault(key, {"key": key, "count": 0, "best": 0, "total": 0})
+            s["count"] += 1
+            s["total"] += lap["ms"]
+            if s["best"] == 0 or lap["ms"] < s["best"]:
+                s["best"] = lap["ms"]
+        return list(by.values())
 
-    # ------------------------------------------------------------ drivers.cpp
+    def cur_ms(self, slot):
+        c = self.cars.get(slot)
+        return (now_us() - c.last_cross) // 1000 if c and c.last_cross else 0
+
+    # ------------------------------------------------------------ drivers.cpp, cars.cpp
     def driver_add(self, name):
-        name = "".join(c for c in name if ord(c) >= 0x20).strip()
-        while len(name.encode()) > MAX_NAME:
-            name = name[:-1]
-        name = name.strip()
+        name = clean_name(name)
         with self.lock:
             if not name or len(self.drivers) >= MAX_DRIVERS or any(d["name"] == name for d in self.drivers):
                 return False
             did = self.next_id
             self.next_id += 1
             self.drivers.append({"id": did, "name": name})
-            if self.driver == 0:
-                self.set_driver(did)
+            if self.cars[0].driver == 0:
+                self.set_driver(0, did)
             self.changed()
             return True
 
@@ -206,43 +236,123 @@ class Timer:
             if not any(d["id"] == did for d in self.drivers):
                 return False
             self.drivers = [d for d in self.drivers if d["id"] != did]
-            self.stats.pop(did, None)
-            if self.driver == did:
-                self.set_driver(self.drivers[0]["id"] if self.drivers else 0)
+            for slot, c in self.cars.items():
+                if c.driver == did:
+                    self.set_driver(slot, 0)
+            if self.cars[0].driver == 0:
+                busy = {c.driver for s, c in self.cars.items() if s}
+                free = [d["id"] for d in self.drivers if d["id"] not in busy]
+                if free:
+                    self.set_driver(0, free[0])
             self.changed()
             return True
 
-    def driver_select(self, did):
+    def car_set_driver(self, slot, did):
         with self.lock:
-            if did != 0 and not any(d["id"] == did for d in self.drivers):
+            if slot not in self.cars or (did and not any(d["id"] == did for d in self.drivers)):
                 return False
-            self.set_driver(did)
+            if did:
+                for s, c in self.cars.items():
+                    if s != slot and c.driver == did:
+                        self.set_driver(s, 0)
+            self.set_driver(slot, did)
+            self.changed()
             return True
+
+    def slot_for(self, tx):
+        with self.lock:
+            for s, c in self.cars.items():
+                if s and c.tx == tx:
+                    return s
+            free = [s for s in range(1, MAX_CARS) if s not in self.cars]
+            if not free:
+                return -1
+            self.cars[free[0]] = Car(tx)
+            self.changed()
+            return free[0]
+
+    def car_rename(self, slot, name):
+        with self.lock:
+            if slot not in self.cars:
+                return False
+            self.cars[slot].name = clean_name(name)
+            self.changed()
+            return True
+
+    def car_remove(self, slot):
+        with self.lock:
+            if slot <= 0 or slot not in self.cars:
+                return False
+            del self.cars[slot]
+            self.changed()
+            return True
+
+    # ------------------------------------------------------------ timing.cpp
+    def passing(self, tx, t, precise=True):
+        """A finished passing from the gate (tx 0 = beam only)."""
+        with self.lock:
+            race = self.race
+            if race["state"] == "countdown" or (race["state"] == "running" and t // 1000 < race["go"]):
+                return
+            if tx:
+                self.ir_id, self.ir_us = tx, t
+            slot = self.slot_for(tx) if tx else (-1 if self.multi else 0)
+            if slot >= 0:
+                self.crossing(slot, t, precise)
+
+    def race_start(self, laps, minutes):
+        with self.lock:
+            self.race_laps, self.race_min = laps, minutes
+            self.reset()
+            self.race = {"state": "countdown", "go": now_us() // 1000 + RACE_COUNTDOWN_MS,
+                         "laps": laps, "minutes": minutes}
+            self.changed()
+
+    def race_tick(self):
+        with self.lock:
+            if self.race["state"] == "countdown" and now_us() // 1000 >= self.race["go"]:
+                self.race["state"] = "running"
+                for slot in self.cars:
+                    self.restart(slot)
 
     # ------------------------------------------------------------ web.cpp
     def state(self):
         with self.lock:
-            kept = self.laps[self.oldest_kept():]
-            bests = [s["best"] for s in self.stats.values() if s["best"]]
+            kept = self.kept()
+            stats = self.stats()
+            bests = [s["best"] for s in stats if s["best"]]
+            prev_of = {}
+            laps = []
+            for lap in kept:
+                p = prev_of.get(lap["car"])
+                prev_of[lap["car"]] = lap
+                laps.append([lap["ms"], lap["driver"], int(lap["deleted"]), int(bool(p) and self.continues(p, lap)),
+                             lap["car"], lap["num"], int(lap["precise"]), lap["end"] // 1000])
             return {
-                "t": "state", "running": self.last_cross != 0, "cur": self.cur_ms(),
-                "driver": self.driver, "canUndo": self.last_pass is not None,
-                "count": len(self.laps), "best": min(bests) if bests else 0, "ignored": self.ignored,
+                "t": "state", "now": now_us() // 1000, "multi": self.multi,
+                "race": dict(self.race, setLaps=self.race_laps, setMin=self.race_min),
+                "count": len(self.laps), "best": min(bests) if bests else 0,
+                "ignored": self.ignored, "unident": self.unident,
                 "minLap": self.min_lap, "delta": self.delta,
+                "zround": {"on": self.zround, "connected": False, "racing": False},
                 "ssid": self.ssid, "staIp": "192.168.1.50" if self.sta == "connected" else "", "sta": self.sta,
                 "staErr": self.sta_err if self.sta == "waiting" else "", "hasPass": bool(self.password),
                 "drivers": self.drivers,
-                "stats": [{"id": k, **v} for k, v in self.stats.items()],
-                "laps": [[l[0], l[1], 1 if l[2] else 0, 1 if i and self.continues(kept[i - 1], l) else 0]
-                         for i, l in enumerate(kept)],
+                "cars": [{"slot": s, "tx": c.tx, "name": c.name, "driver": c.driver, "running": c.last_cross != 0,
+                          "cur": self.cur_ms(s), "canUndo": c.last_pass is not None, "laps": c.num}
+                         for s, c in sorted(self.cars.items())],
+                "stats": stats,
+                "laps": laps,
             }
 
     def live(self):
         rssi = FAKE_NETWORKS.get(self.ssid, (0, False))[0] + random.randint(-2, 2) if self.sta == "connected" else 0
         broken = self.broken or self.blocked
-        raw = 600 if self.blocked else self.raw
-        return {"t": "live", "raw": raw, "base": self.base, "broken": broken, "cur": self.cur_ms(),
-                "noise": self.noise, "peak": self.peak, "suggest": suggest_delta(self.noise, self.peak), "rssi": rssi}
+        return {"t": "live", "raw": 600 if self.blocked else self.raw, "base": self.base, "broken": broken,
+                "cur": [self.cur_ms(s) for s in range(MAX_CARS)],
+                "noise": self.noise, "peak": self.peak, "suggest": suggest_delta(self.noise, self.peak),
+                "irId": self.ir_id, "irAgo": (now_us() - self.ir_us) // 1000 if self.ir_us else -1,
+                "unident": self.unident, "rssi": rssi}
 
     # ------------------------------------------------------------ wlan.cpp
     def wifi_apply(self, ssid, password):
@@ -281,29 +391,35 @@ timer = Timer()
 
 
 # ---------------------------------------------------------------- simulation
-def simulate():
-    """A car lapping the track. Each driver has their own pace; sometimes a false trigger."""
-    next_cross = time.monotonic() + 3
+def simulate(n_cars):
+    """Cars lapping the track, each at its own pace. Sometimes a false trigger or an IR-only pass."""
+    txs = SIM_TRANSPONDERS[:n_cars] if n_cars > 1 else [0]
+    rng = random.Random(7)
+    pace = {tx: 6.5 + rng.random() * 2.5 for tx in txs}
+    next_cross = {tx: time.monotonic() + 2 + rng.random() * 3 for tx in txs}
     while True:
         t = time.monotonic()
+        timer.race_tick()
         timer.raw = timer.base + random.randint(-timer.noise, timer.noise)
-        if t >= next_cross and not timer.blocked:      # a blocked beam can't be broken again
-            timer.crossing()
+        for tx in txs:
+            if t < next_cross[tx] or timer.blocked:
+                continue
+            imprecise = n_cars > 1 and random.random() < 0.08    # hidden behind another car at the beam
+            timer.passing(tx, now_us(), precise=not imprecise)
             timer.peak = random.randint(2300, 2500)
-            timer.broken, timer.raw = True, 600
-            time.sleep(0.25)
-            timer.broken = False
-            name = next((d["name"] for d in timer.drivers if d["id"] == timer.driver), "")
-            pace = 6.5 + (sum(map(ord, name)) % 30) / 10      # 6.5–9.5 s, stable per driver
-            next_cross = time.monotonic() + random.gauss(pace, 0.4)
-            if random.random() < 0.07:                         # someone walks through the beam
-                threading.Timer(random.uniform(2.5, pace - 1), false_trigger).start()
+            next_cross[tx] = t + max(3, random.gauss(pace[tx], 0.35))
+            if random.random() < 0.05:                            # someone walks through the beam
+                threading.Timer(random.uniform(2, 4), false_trigger, args=(tx,)).start()
         time.sleep(0.02)
 
 
-def false_trigger():
-    print("  (simulated false trigger)")
-    timer.crossing()
+def false_trigger(tx):
+    if timer.multi:
+        timer.unident += 1                                         # no transponder near the gate
+        timer.changed()
+    else:
+        print("  (simulated false trigger)")
+        timer.passing(0, now_us())
 
 
 # ---------------------------------------------------------------- WebSocket (minimal, text frames only)
@@ -378,6 +494,7 @@ class WsServer(socketserver.ThreadingTCPServer):
 def pusher():
     sent = -1
     while True:
+        timer.race_tick()
         if timer.revision != sent:
             sent = timer.revision
             broadcast(timer.state())
@@ -387,7 +504,7 @@ def pusher():
 
 # ---------------------------------------------------------------- HTTP
 STATIC = {"/": ("index.html", "text/html"), "/style.css": ("style.css", "text/css"),
-          "/app.js": ("app.js", "application/javascript")}
+          "/app.js": ("app.js", "application/javascript"), "/race.js": ("race.js", "application/javascript")}
 
 
 class Http(BaseHTTPRequestHandler):
@@ -425,24 +542,27 @@ class Http(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(url.query, keep_blank_values=True).items()}
         num = lambda k: int(q.get(k) or 0)
         p = url.path
-        if p == "/api/reset":
-            timer.reset(); self.result(True)
-        elif p == "/api/undo":
-            self.result(timer.undo())
-        elif p == "/api/restart":
-            timer.restart(); self.result(True)
-        elif p == "/api/lap/delete":
-            self.result(timer.delete(num("n")))
-        elif p == "/api/lap/join":
-            self.result(timer.join(num("n")))
-        elif p == "/api/driver/add":
-            self.result(timer.driver_add(q.get("name", "")))
-        elif p == "/api/driver/remove":
-            self.result(timer.driver_remove(num("id")))
-        elif p == "/api/driver/select":
-            self.result(timer.driver_select(num("id")))
-        elif p == "/api/calibrate":
-            timer.base = timer.raw; self.result(True)
+        routes = {
+            "/api/reset":         lambda: (timer.reset(), timer.race.update(state="off"), True)[-1],
+            "/api/undo":          lambda: timer.undo(num("car")),
+            "/api/restart":       lambda: (timer.restart(num("car")), True)[-1],
+            "/api/lap/delete":    lambda: timer.delete(num("n")),
+            "/api/lap/join":      lambda: timer.join(num("n")),
+            "/api/driver/add":    lambda: timer.driver_add(q.get("name", "")),
+            "/api/driver/remove": lambda: timer.driver_remove(num("id")),
+            "/api/driver/select": lambda: timer.car_set_driver(num("car"), num("id")),
+            "/api/car/rename":    lambda: timer.car_rename(num("slot"), q.get("name", "")),
+            "/api/car/remove":    lambda: timer.car_remove(num("slot")),
+            "/api/mode":          lambda: (setattr(timer, "multi", num("multi") != 0), True)[-1],
+            "/api/usb":           lambda: (setattr(timer, "zround", num("zround") != 0), True)[-1],
+            "/api/race/start":    lambda: (timer.race_start(min(max(num("laps"), 0), 999),
+                                                            min(max(num("minutes"), 0), 600)), True)[-1],
+            "/api/race/stop":     lambda: (timer.race.update(state="off"), True)[-1],
+            "/api/calibrate":     lambda: (setattr(timer, "base", timer.raw), True)[-1],
+            "/api/wifi/scan":     lambda: timer.scan_start(),
+        }
+        if p in routes:
+            self.result(routes[p]())
         elif p == "/api/config":
             timer.min_lap = min(max(num("minLap") or timer.min_lap, 300), 600000)
             timer.delta = min(max(num("delta") or timer.delta, 50), 4000)
@@ -452,12 +572,13 @@ class Http(BaseHTTPRequestHandler):
             keep = "pass" not in q and ssid == timer.ssid        # no pass argument = keep the saved one
             timer.wifi_apply(ssid, timer.password if keep else q.get("pass", ""))
             self.result(True)
-        elif p == "/api/wifi/scan":
-            self.result(timer.scan_start())
-        elif p == "/mock/cross":
-            timer.crossing(); timer.peak = 2400; self.result(True)
-        elif p == "/mock/block":                                # hold the beam broken: ?on=1 / ?on=0
-            timer.blocked = q.get("on") == "1"; self.result(True)
+        elif p == "/mock/cross":                                 # ?tx=6969 (decimal) for a transponder car
+            timer.passing(num("tx"), now_us())
+            timer.peak = 2400
+            self.result(True)
+        elif p == "/mock/block":                                 # hold the beam broken: ?on=1 / ?on=0
+            timer.blocked = q.get("on") == "1"
+            self.result(True)
         else:
             self.send(404, "Not found", "text/plain")
 
@@ -475,12 +596,14 @@ def lan_ip():
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080)")
-    ap.add_argument("--manual", action="store_true", help="no simulated car, use POST /mock/cross")
+    ap.add_argument("--cars", type=int, default=1, help="simulated cars; more than 1 = transponder cars (max 7)")
+    ap.add_argument("--manual", action="store_true", help="no simulated cars, use POST /mock/cross")
     ap.add_argument("--drivers", default="", help="comma-separated names to start with, e.g. Martin,Jana")
     args = ap.parse_args()
 
     for name in filter(None, (n.strip() for n in args.drivers.split(","))):
         timer.driver_add(name)
+    timer.multi = args.cars > 1
 
     ws_port = None
     for port in (81, 8081):
@@ -495,12 +618,11 @@ def main():
     threading.Thread(target=ws.serve_forever, daemon=True).start()
     threading.Thread(target=pusher, daemon=True).start()
     if not args.manual:
-        threading.Thread(target=simulate, daemon=True).start()
+        threading.Thread(target=simulate, args=(min(args.cars, 7),), daemon=True).start()
 
-    host_ip = lan_ip()
     suffix = "" if ws_port == 81 else f"/?ws={ws_port}"
-    print(f"Mock RC Lap Timer: http://localhost:{args.port}{suffix}  (phone: http://{host_ip}:{args.port}{suffix})")
-    print("Simulated car is driving." if not args.manual else f"Manual mode: curl -X POST localhost:{args.port}/mock/cross")
+    print(f"Mock RC Lap Timer: http://localhost:{args.port}{suffix}  (phone: http://{lan_ip()}:{args.port}{suffix})")
+    print(f"{args.cars} simulated car(s)." if not args.manual else f"Manual mode: curl -X POST localhost:{args.port}/mock/cross")
     ThreadingHTTPServer(("0.0.0.0", args.port), Http).serve_forever()
 
 

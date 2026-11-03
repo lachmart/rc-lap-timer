@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>RC Lap Timer</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/race.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -17,6 +18,19 @@
     </span>
   </h1>
 
+  <!-- race in progress -->
+  <div class="card" id="raceCard" hidden>
+    <div class="race-head"><span class="lbl" id="raceTitle">Race</span><span class="race-clock" id="raceClock"></span></div>
+    <div class="countdown" id="countdown" hidden></div>
+    <table class="board standings">
+      <thead><tr><th></th><th>Driver</th><th>Laps</th><th>Last</th><th>Best</th><th>Gap</th></tr></thead>
+      <tbody id="standings"></tbody>
+    </table>
+    <p class="hint" id="raceHint"></p>
+    <button class="wide" id="raceStop">Back to training</button>
+  </div>
+
+  <!-- one car, beam only -->
   <div class="card" id="curCard">
     <div class="lbl" id="state">Waiting for start pass</div>
     <div class="big" id="cur">--.---</div>
@@ -27,20 +41,32 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="lbl">Driving now</div>
+  <!-- several cars, training -->
+  <div class="card" id="trackCard" hidden>
+    <div class="lbl">On track</div>
+    <div class="warn" id="beamWarn2" hidden></div>
+    <table class="board track">
+      <thead><tr><th>Car</th><th>Lap</th><th>Now</th><th>Last</th><th>Best</th><th></th></tr></thead>
+      <tbody id="track"></tbody>
+    </table>
+    <p class="hint" id="trackHint"></p>
+  </div>
+
+  <div class="card" id="driversCard">
+    <div class="lbl" id="driversTitle">Driving now</div>
     <div class="chips" id="chips"></div>
+    <div class="carDrivers" id="carDrivers"></div>
     <details id="editDrivers"><summary>Edit drivers</summary>
       <ul class="dlist" id="dlist"></ul>
       <form class="add" id="addForm">
         <input id="newName" maxlength="16" placeholder="Name" autocomplete="off" enterkeyhint="done">
         <button>Add</button>
       </form>
-      <p class="hint" id="dmsg">Switching driver drops the lap in progress, the next pass starts the new driver's lap.</p>
+      <p class="hint" id="dmsg">Switching driver drops that car's lap in progress, its next pass starts the new driver's lap.</p>
     </details>
   </div>
 
-  <div class="row">
+  <div class="row" id="lastBest">
     <div class="card"><div class="lbl">Last</div><div class="mid" id="last">--</div><div class="lbl" id="lastd">&nbsp;</div></div>
     <div class="card"><div class="lbl">Best</div><div class="mid best" id="best">--</div><div class="lbl" id="bestd">&nbsp;</div></div>
   </div>
@@ -64,6 +90,25 @@
     <button id="snd">🔇 Beep</button>
     <button id="voice">🔇 Voice</button>
   </div>
+
+  <div class="card"><details id="raceSetup"><summary>Race</summary>
+    <div class="seg" id="raceKind">
+      <button type="button" data-kind="laps" class="on">Laps</button>
+      <button type="button" data-kind="minutes">Minutes</button>
+    </div>
+    <label><span id="raceLenLbl">Number of laps</span> <input id="raceLen" type="number" min="1" max="999" value="10"></label>
+    <button class="wide r" id="raceStart">Start race</button>
+    <p class="hint">Starting a race clears the session. A countdown runs (3, 2, 1, go); each car's first crossing after "go" starts its timing.
+      The race ends when the leader completes the last lap (or crosses after the time is up); every other car finishes at its next crossing.</p>
+  </details></div>
+
+  <div class="card"><details id="carsCard"><summary>Cars <span class="sum" id="csum"></span></summary>
+    <label class="switch"><span>Several cars with IR transponders</span><input type="checkbox" id="multi"></label>
+    <div class="wstat" id="irStat"></div>
+    <ul class="cars" id="cars"></ul>
+    <p class="hint">A transponder seen at the gate for the first time is added here automatically. Give it a name and
+      assign a driver under <b>Drivers</b>. RiCino transponders show as #1B39, NE556 blink transponders as their rate in Hz.</p>
+  </details></div>
 
   <div class="card"><details id="sensorCard"><summary>Sensor <span class="sum" id="ssum"></span></summary>
     <p class="lbl">ADC <b id="raw">0</b> · idle <b id="base">0</b> · beam <b id="beam">?</b></p>
@@ -102,12 +147,27 @@
       At the track, a phone hotspot works as the home network.</p>
   </details></div>
 
+  <div class="card"><details id="usbCard"><summary>USB / ZRound <span class="sum" id="usum"></span></summary>
+    <label class="switch"><span>ZRound decoder on the USB port</span><input type="checkbox" id="zround"></label>
+    <div class="wstat" id="zstat"></div>
+    <p class="hint">Connect the timer to the laptop with ZRound by USB and choose the RiCino decoder, 19200 baud.
+      ZRound then runs the races itself; this app keeps showing the passes. Only transponder cars are sent.
+      While this is on, the USB port has no debug log.</p>
+  </details></div>
+
   <div class="bigview" id="bigView" hidden>
-    <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
-    <div class="bv-cur" id="bvCur">--.---</div>
-    <div class="bv-row">
-      <div><div class="lbl">Last</div><div class="bv-mid" id="bvLast">--</div><div class="lbl" id="bvLastd"></div></div>
-      <div><div class="lbl">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="lbl" id="bvBestd"></div></div>
+    <div id="bvSingle">
+      <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
+      <div class="bv-cur" id="bvCur">--.---</div>
+      <div class="bv-row">
+        <div><div class="lbl">Last</div><div class="bv-mid" id="bvLast">--</div><div class="lbl" id="bvLastd"></div></div>
+        <div><div class="lbl">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="lbl" id="bvBestd"></div></div>
+      </div>
+    </div>
+    <div id="bvMulti" hidden>
+      <div class="bv-top"><span id="bvTitle"></span><span id="bvClock"></span></div>
+      <div class="countdown bv-count" id="bvCount" hidden></div>
+      <table class="bv-table"><tbody id="bvRows"></tbody></table>
     </div>
     <div class="warn" id="bvWarn" hidden></div>
     <div class="bv-exit">tap to close</div>

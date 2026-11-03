@@ -1,14 +1,16 @@
 # RC Lap Timer
 
-Lap timer for an RC car, drivers take turns. ESP32 + laser beam gate + web app on a phone over Wi-Fi.
+Lap timer for RC cars: one car with drivers taking turns, or up to 5 (firmware: 7) cars at once with IR
+transponders; training and races. ESP32 + laser beam gate + IR receiver + web app on a phone over Wi-Fi.
+Multi-car design agreed with Martin: [docs/multi-car.md](docs/multi-car.md).
 Hobby project. Communication, code comments, UI and commits in English.
 
 ## Status
 
-- Firmware **compiles cleanly** (platform espressif32 8.0.0 pinned, Arduino core 3.3.12, WebSockets 2.7.3; partition table `min_spiffs.csv` = 1.9 MB app with OTA, flash ~62 %). **Never uploaded to a board yet.**
+- Firmware **compiles cleanly** (platform espressif32 8.0.0 pinned, Arduino core 3.3.12, WebSockets 2.7.3; partition table `min_spiffs.csv` = 1.9 MB app with OTA, flash ~64 %). **Never uploaded to a board yet.** Transponder firmware (`transponder/`, ATtiny202) builds separately.
 - Hardware not yet assembled or tested. `DEF_DELTA` and `DEF_MIN_LAP` are estimates, tuned via the web UI.
-- Lap logic unit-tested on the host (`pio test -e native`). Web UI verified against the mock server only.
-- **Untested on hardware**: switching `WIFI_AP_STA` ↔ `WIFI_AP` while the AP runs (should keep AP clients), mDNS restart after a late STA connect, scan while phones are on the AP, disconnect reason codes (wrong password vs. not found), GPIO 2 LED, OTA upload, whether the GL5528 LDR is fast enough for fast passes (watch pass depth vs. speed).
+- Unit-tested on the host: laps, beam, NEC + blink decoders, pass matching (`pio test -e native`), race standings (`node --test test/js/*.test.js`). Web UI verified against the mock server only.
+- **Untested on hardware**: switching `WIFI_AP_STA` ↔ `WIFI_AP` while the AP runs (should keep AP clients), mDNS restart after a late STA connect, scan while phones are on the AP, disconnect reason codes (wrong password vs. not found), GPIO 2 LED, OTA upload, whether the GL5528 LDR is fast enough for fast passes (watch pass depth vs. speed), the whole IR path (TSOP on GPIO 33, ISR, real transponder timing and range beside the track, ATtiny202 TCA0 carrier + SerialUPDI with the CP2102), ZRound talking to our RiCino emulation.
 - Development on a Mac, PlatformIO in VS Code (`pio run -t upload`, `pio device monitor`).
 
 ## Structure
@@ -17,16 +19,24 @@ Hobby project. Communication, code comments, UI and commits in English.
   - `main.cpp` – `setup()`/`loop()` only, wires modules together
   - `config.h` – fixed constants (pins, AP name, limits, defaults)
   - `settings.*` – Preferences load/save, global `settings` struct
-  - `sensor.*` – sampling task (ADC, LED), feeds `Beam`, calls `lapsCrossing()`
+  - `sensor.*` – the gate task (core 1, ~1 kHz): ADC → `Beam`, IR receiver edges (ISR on GPIO 33 → lock-free ring buffer) → `NecDecoder` + `BlinkDecoder`/`BlinkIds` → `PassMatcher` → FreeRTOS queue of `Passing`s for the main loop. LED.
   - `beam.*` – `Beam` class: detection (deviation from idle, hysteresis delta/2, idle EMA), noise (decaying peak hold of clear-beam deviation, delayed 64 samples and 300 ms hold-off after a break so the slow LDR's ramps don't count), pass depth (peak of last break), `beamSuggestDelta()` (between 2·noise+50 and 0.7·depth, -1 = too weak). No hardware deps, unit-tested.
-  - `laps.*` – session state: lap ring buffer, per-driver stats, undo/restart/delete/join. Behind `portMUX` on ESP32, no lock and no hardware deps on the host (time is passed in), so it's unit-tested. `lapsRevision()` change counter.
-  - `drivers.*` – driver list (names in Preferences namespace `drivers`, ids assigned at runtime), selection; main loop only
+  - `nec.*` – RiCino-compatible NEC decoder (edge timestamps in, 32-bit code out, ±30 % tolerance) + encoder (used by tests; the transponder has its own). `necTransponderId()`: 0x1000–0xFFFF in the low 16 bits.
+  - `blink.*` – NE556 "blink" transponders: rate from 8 steady periods (±5 %), suppressed for 80 ms after a > 3 ms mark (an NEC header, whose zero bits would look like ~890 Hz). `BlinkIds` maps readings within ±6 % to learned rates (seeded from saved cars).
+  - `passes.*` – `PassMatcher`: single mode = every beam break is car 0; multi = sightings cluster per id (gap < 250 ms, max 2 s), a finished cluster takes the nearest beam break within ±200 ms (precise) or its middle (imprecise); unclaimed beam breaks → `unidentified`.
+  - `timing.*` – main loop: passings → `carsSlotFor()` → `lapsCrossing()`, ZRound hook, mode switch, race state (countdown → running; at "go" `lapsRestart` on all cars; passings before "go" ignored). Race standings/finish are NOT in firmware: `web/race.js`.
+  - `laps.*` – session state per car slot (`MAX_CARS` 8, slot 0 = beam-only car): lap ring buffer shared by all cars (`Lap{endUs, ms, num, car, driver, deleted, precise}`), per-car lap in progress/undo, stats per `key` = driver id or `STATS_CAR|slot`. Behind `portMUX` on ESP32, no hardware deps (time passed in), unit-tested. `lapsRevision()` change counter.
+  - `cars.*` – car slots: transponder id (`tx`, RiCino 0x1000+ or blink Hz), name, driver; learned on first sighting; Preferences namespace `cars` (`tx`, `names`, `drv` = newline lists by slot, drivers saved by name). A driver drives one car at a time. Main loop only.
+  - `drivers.*` – driver list (names in Preferences namespace `drivers`, ids assigned at runtime). Main loop only.
+  - `zround.*` – USB serial mode: debug log 115200 or ZRound decoder (RiCino protocol, 19200: `%C&`/`%A&`, `%I&`, `%F&`, `%L<id>,<ms>&`, `%T<ms>&` every 5 s). `LOGF()` in `log.h` is silent in ZRound mode.
   - `wlan.*` – AP, STA state machine, captive DNS, mDNS (not named `network.*`: on macOS' case-insensitive FS it would shadow the framework's `Network.h`)
   - `ota.*` – ArduinoOTA (port 3232, password `OTA_PASSWORD`, its own mDNS disabled because `wlan` runs mDNS); env `ota` in platformio.ini (`espota`, 192.168.4.1)
   - `web.*` – WebServer, WebSocket, JSON building (with escaping)
-- `web/` – `index.html`, `style.css`, `app.js` as normal files. Embedded into the firmware by `board_build.embed_txtfiles`, accessed in `web.cpp` via `asm("_binary_web_<name>_start")` symbols and served at `/`, `/style.css`, `/app.js`. No LittleFS / uploadfs needed.
-- `test/test_laps/`, `test/test_beam/` – Unity tests, env `native` builds only `laps.cpp` and `beam.cpp` (`build_src_filter`). Run `pio test -e native` (plain `pio test` runs nothing, `esp32dev` has `test_ignore = *`).
-- `tools/mock_server.py` – stdlib-only Python fake of the firmware (HTTP 8080 + WS 81, simulated car with false triggers, `--manual`, `POST /mock/cross`, `POST /mock/block?on=1|0`, fake Wi-Fi networks; password `wrong` fails). **Mirrors laps/drivers logic: keep it in sync when behaviour changes.**
+- `web/` – `index.html`, `style.css`, `app.js`, `race.js` (race standings, UMD so node can test it) as normal files. Embedded into the firmware by `board_build.embed_txtfiles`, accessed in `web.cpp` via `asm("_binary_web_<name>_start")` symbols and served at `/`, `/style.css`, `/app.js`. No LittleFS / uploadfs needed.
+- `test/test_*/` – Unity tests, env `native` builds only the hardware-free modules (`build_src_filter`: laps, beam, nec, passes, blink). `test/js/` – node:test for `web/race.js`. Run `pio test -e native` (plain `pio test` runs nothing, `esp32dev` has `test_ignore = *`).
+- `tools/mock_server.py` – stdlib-only Python fake of the firmware (HTTP 8080 + WS 81, simulated car(s) with false triggers, `--cars 5` for transponder cars, `--manual`, `POST /mock/cross[?tx=]`, `POST /mock/block?on=1|0`, fake Wi-Fi networks; password `wrong` fails). **Mirrors laps/cars/drivers/timing logic: keep it in sync when behaviour changes.**
+- `transponder/` – separate PlatformIO project (atmelmegaavr, ATtiny202 @ 10 MHz, `serialupdi`): NEC frames with TCA0 38 kHz carrier on PA3, random 5–20 ms gap; id via `PLATFORMIO_BUILD_FLAGS="-DTRANSPONDER_ID=0x1001"`. Circuit + programming in its README.
+- `docs/multi-car.md` – agreed multi-car design (gate beside the track, race rules).
 - `platformio.ini` – `default_envs = esp32dev`; envs `esp32dev`, `ota` (extends esp32dev, Wi-Fi upload) and `native`
 - `README.md` – wiring, uploading, usage, API
 - Arduino IDE is not supported (PlatformIO only).
@@ -37,12 +47,14 @@ Hobby project. Communication, code comments, UI and commits in English.
 - 650 nm laser shines across the track into an LDR inside a black tube
 - Divider `3V3 ── LDR ──┬── GPIO 32`, `└── 10 kΩ ── GND`
 - The sensor must be on ADC1 (GPIO 32–39); ADC2 does not work while Wi-Fi is on
+- IR receiver TSOP38238 on GPIO 33 (D33, next to D32), beside the track at car height in a tube. The ISR reads `GPIO_IN1_REG`, so `IR_PIN` must be 32–39.
+- Transponders: ATtiny202 + 78L05 + BC337 + wide-angle IR LED, powered via servo Y-cable (cars have no free receiver port). Martin has a CP2102 USB-serial adapter for SerialUPDI. Cars max ~20 km/h.
 
 ## Firmware architecture
 
 - **Measurement** runs in a separate FreeRTOS task (`sensorTask`, core 1, ~1 kHz via `vTaskDelay(1)`), timestamps from `esp_timer_get_time()` (µs).
 - Detection (in `Beam`) = deviation from the idle value (`|raw - base| > delta`), so wiring polarity doesn't matter. Hysteresis `delta/2`. The idle value is calibrated at startup and on request; outside of a pass it slowly tracks ambient light (EMA ~2 s).
-- The first pass only starts timing; every subsequent pass records a lap for the selected driver. Passes shorter than `minLapMs` are discarded (counter `ignored`).
+- Each car's first pass only starts its timing; every subsequent pass records a lap for that car's driver. Passes shorter than `minLapMs` are discarded (counter `ignored`).
 - **Session/laps**: ring of `MAX_LAPS` laps (`{endUs, ms, driver, deleted}`), stats per driver kept incrementally so they survive ring wrap. Overall best = min of driver bests. Corrections:
   - undo (one level): reverts the last pass; after a lap pass `lastCrossUs = prevCrossUs`, so the lap continues from the real previous pass
   - restart: drop the lap in progress; switching driver does the same (a lap must not mix drivers)
@@ -59,7 +71,19 @@ Hobby project. Communication, code comments, UI and commits in English.
 ## Decisions and alternatives considered
 
 - **One car, drivers take turns**: a driver is selected in the UI, laps are attributed to them, leaderboard per session. No persistent session history / CSV export (explicitly not wanted).
-- For multiple cars at once (not planned): separate lanes each with its own gate, or gates at different heights; with car modifications IR LEDs + NE555 at different frequencies and TSOP receivers. RFID (UHF as used at marathons) is expensive and doesn't like carbon/metal.
+- **Multi-car decided** (docs/multi-car.md): RiCino-compatible IR transponders (ATtiny202; ATtiny85 and ESP32-C3 rejected as too expensive, CH32V003 not sold in Czechia) + laser for the time (hybrid), gate beside the track, races with per-car start at its first crossing after "go", standard finish rule, anyone can control races, ZRound over USB optional. NE556 blink transponders also decoded as a no-programming fallback. Rejected: separate lanes, UHF RFID, BLE RSSI.
+
+## Multi-car: existing systems (researched 2026-11-03)
+
+Goal: be compatible with existing transponders and race software instead of inventing a protocol.
+
+- **RiCino** (github.com/cdemetriadis/RiCino-Lap-Counter, GPL-3.0): transponder = ATtiny85 + IR LED, `IRremote sendNEC(id, 32)` at **38 kHz**, id `0x1000–0xFFFF`, repeated every ~10 ms after each frame. An NEC frame takes ~60–70 ms, so IR alone is coarse (±35 ms) and can miss fast cars (RicinoNext notes it). Receiver = TSOP 38 kHz + IRremote. Easy to decode on ESP32 (RMT).
+  - **ZRound serial protocol** (from RiCino `Receiver.ino`), 19200 baud: PC→decoder `%C&` connect, `%I&` start race, `%F&` finish; decoder→PC `%A&` ack (sent repeatedly after `%C&`), `%T<ms hex>&` time sync every 5 s, `%L<id hex>,<ms hex>&` lap passing (ms since `%I&`). ZRound ≥ 1.15.
+- **i-Lap** (commercial IR, Mini-Z): proprietary, high carrier (~455 kHz per forum guesses), 7-digit IDs. MultiRC_Transponder (github.com/hindenbugbite/MultiRC_Transponder, MIT) has emulation codes (6-byte with CRC), untested. Not worth targeting first.
+- **Easylap / Robitronic** IR: commercial transponders exist (ET001, Mini-Z); IrDA-like 500 µs pulses (RicinoNext notes). Undocumented.
+- **AMB RC3 / MyLaps RC4** (club standard): inductive loop ~5 MHz, not IR. **OpenStint** (openstint.org) reads RC3 + clones, RC4 Hybrid and RC4 with an RTL-SDR + wire loop (~$65) on a PC or Raspberry Pi; outputs to LapBeeps natively, bridges to ZRound and RCGTiming. Can't run on the ESP32. MyLaps P3 protocol reference: skoky/P3tools, ghidinelli/ambmylapstiming.
+- **RCHourglass** (loop-based DIY, PSoC): emulates AMBrc serial and CANO; non-commercial license with share-alike terms, avoid copying code.
+- Most likely plan: RiCino-compatible IR transponders for car ID + the existing laser for the timestamp (hybrid), and optionally speak the ZRound serial protocol over USB.
 - **Doppler**: acoustic (engine sound) rejected as a timer due to accuracy (~±10–30 ms, throttle changes the frequency). Microwave radar (HB100 10.5 GHz, ~19.5 Hz per km/h) is a possible future extension as a **speed meter** on the straight, not as a timer. Martin is checking whether he has the module.
 - **Sensor**: LDR GL5528 for now. It is slow (20–30 ms), comparable to how long a fast car blocks the beam; if pass depth drops at speed, switch to a phototransistor (BPW85 / L-53P3C / TEPT4400) in the same divider, no code change. Sampling is 1 kHz (1 ms resolution), fine for a phototransistor too.
 - **Bluetooth** deliberately not used. Staying with Wi-Fi for iPhone compatibility without installing an app.

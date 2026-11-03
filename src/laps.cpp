@@ -10,30 +10,38 @@ static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 #define UNLOCK()
 #endif
 
-enum class LastPass : uint8_t { None, Start, Lap };   // what the last pass did, for undo
+enum class LastPass : uint8_t { None, Start, Lap };   // what the car's last pass did, for undo
 
-static int64_t     lastCrossUs = 0;   // 0 = waiting for the start pass
-static int64_t     prevCrossUs = 0;   // lastCrossUs before the last pass, for undo
-static LastPass    lastPass    = LastPass::None;
-static Lap         laps[MAX_LAPS];    // ring buffer
+struct Car {
+  int64_t  lastCrossUs = 0;      // 0 = waiting for the start pass
+  int64_t  prevCrossUs = 0;      // lastCrossUs before the last pass, for undo
+  LastPass lastPass    = LastPass::None;
+  uint8_t  driver      = 0;
+  uint16_t num         = 0;      // laps numbered so far
+};
+
+static Car         cars[MAX_CARS];
+static Lap         laps[MAX_LAPS];    // ring buffer, all cars
 static int         lapCount    = 0;
-static int         floorKept   = 0;   // laps below this number-1 are no longer in the ring (see popAt)
+static int         floorKept   = 0;   // laps below this index are no longer in the ring (see popAt)
 static uint32_t    ignored     = 0;
-static uint8_t     driver      = 0;
 static DriverStats stats[MAX_STATS];
 static int         nStats      = 0;
 static volatile uint32_t revision = 0;
 
 static void changed() { revision = revision + 1; }    // ++ on volatile is deprecated in C++20
+static bool validCar(int car) { return car >= 0 && car < MAX_CARS; }
 
-static DriverStats* statsFor(uint8_t id, bool create) {
-  for (int i = 0; i < nStats; i++) if (stats[i].id == id) return &stats[i];
+static uint16_t statsKey(const Lap& l) { return l.driver ? l.driver : (uint16_t)(STATS_CAR | l.car); }
+
+static DriverStats* statsFor(uint16_t key, bool create) {
+  for (int i = 0; i < nStats; i++) if (stats[i].key == key) return &stats[i];
   if (!create || nStats >= MAX_STATS) return nullptr;
-  stats[nStats] = { id, 0, 0, 0 };
+  stats[nStats] = { key, 0, 0, 0 };
   return &stats[nStats++];
 }
 
-// Index (0-based lap number) of the oldest lap still in the ring.
+// Index of the oldest lap still in the ring.
 static int oldestKept() {
   int byRing = lapCount > MAX_LAPS ? lapCount - MAX_LAPS : 0;
   return byRing > floorKept ? byRing : floorKept;
@@ -50,17 +58,23 @@ static void popAt(int index) {
   lapCount--;
 }
 
-// Best lap of a driver from the laps still in memory (older laps have rotated out of the ring).
+// Index of the car's newest lap in the ring, -1 if none.
+static int lastLapOf(int car) {
+  for (int i = lapCount - 1; i >= oldestKept(); i--) if (lapAt(i).car == car) return i;
+  return -1;
+}
+
+// Best lap for a stats key from the laps still in memory (older laps have rotated out of the ring).
 static void recomputeBest(DriverStats& s) {
   s.bestMs = 0;
   for (int i = oldestKept(); i < lapCount; i++) {
     const Lap& l = lapAt(i);
-    if (!l.deleted && l.driver == s.id && (s.bestMs == 0 || l.ms < s.bestMs)) s.bestMs = l.ms;
+    if (!l.deleted && statsKey(l) == s.key && (s.bestMs == 0 || l.ms < s.bestMs)) s.bestMs = l.ms;
   }
 }
 
 static void addToStats(const Lap& l) {
-  if (DriverStats* s = statsFor(l.driver, true)) {
+  if (DriverStats* s = statsFor(statsKey(l), true)) {
     s->count++;
     s->totalMs += l.ms;
     if (s->bestMs == 0 || l.ms < s->bestMs) s->bestMs = l.ms;
@@ -69,29 +83,31 @@ static void addToStats(const Lap& l) {
 
 // Call after the lap is already marked deleted or popped off the ring.
 static void removeFromStats(const Lap& l) {
-  DriverStats* s = statsFor(l.driver, false);
+  DriverStats* s = statsFor(statsKey(l), false);
   if (!s) return;
   s->count--;
   s->totalMs -= l.ms;
   if (s->bestMs == l.ms) recomputeBest(*s);
 }
 
-void lapsCrossing(int64_t nowUs, uint32_t minLapMs) {
+void lapsCrossing(int car, int64_t nowUs, uint32_t minLapMs, bool precise) {
+  if (!validCar(car)) return;
   LOCK();
-  if (lastCrossUs == 0) {
-    lastCrossUs = nowUs;                              // the start pass only starts timing
-    prevCrossUs = 0;
-    lastPass    = LastPass::Start;
+  Car& c = cars[car];
+  if (c.lastCrossUs == 0) {
+    c.lastCrossUs = nowUs;                            // the start pass only starts timing
+    c.prevCrossUs = 0;
+    c.lastPass    = LastPass::Start;
   } else {
-    int64_t diffUs = nowUs - lastCrossUs;
+    int64_t diffUs = nowUs - c.lastCrossUs;
     if (diffUs >= (int64_t)minLapMs * 1000) {
       uint32_t ms = (uint32_t)((diffUs + 500) / 1000);
-      lapAt(lapCount) = { nowUs, ms, driver, false };
+      lapAt(lapCount) = { nowUs, ms, ++c.num, (uint8_t)car, c.driver, false, precise };
       lapCount++;
       addToStats(lapAt(lapCount - 1));
-      prevCrossUs = lastCrossUs;
-      lastCrossUs = nowUs;
-      lastPass    = LastPass::Lap;
+      c.prevCrossUs = c.lastCrossUs;
+      c.lastCrossUs = nowUs;
+      c.lastPass    = LastPass::Lap;
     } else {
       ignored++;
     }
@@ -102,69 +118,80 @@ void lapsCrossing(int64_t nowUs, uint32_t minLapMs) {
 
 void lapsReset() {
   LOCK();
-  lastCrossUs = 0; prevCrossUs = 0; lastPass = LastPass::None;
+  for (Car& c : cars) { uint8_t d = c.driver; c = Car(); c.driver = d; }
   lapCount = 0; floorKept = 0; ignored = 0; nStats = 0;
   changed();
   UNLOCK();
 }
 
-void lapsSetDriver(uint8_t id) {
+void lapsSetDriver(int car, uint8_t id) {
+  if (!validCar(car)) return;
   LOCK();
-  if (id != driver) {
-    driver = id;
-    lastCrossUs = 0;                                  // the lap in progress would mix two drivers
-    lastPass = LastPass::None;
+  Car& c = cars[car];
+  if (id != c.driver) {
+    c.driver = id;
+    c.lastCrossUs = 0;                                // the lap in progress would mix two drivers
+    c.lastPass = LastPass::None;
     changed();
   }
   UNLOCK();
 }
 
+uint8_t lapsDriver(int car) { return validCar(car) ? cars[car].driver : 0; }
+
 void lapsForgetDriver(uint8_t id) {
   LOCK();
   for (int i = 0; i < nStats; i++) {
-    if (stats[i].id == id) { stats[i] = stats[--nStats]; break; }
+    if (stats[i].key == id) { stats[i] = stats[--nStats]; break; }
   }
   changed();
   UNLOCK();
 }
 
-bool lapsUndo() {
+bool lapsUndo(int car) {
+  if (!validCar(car)) return false;
   LOCK();
+  Car& c = cars[car];
   bool ok = true;
-  if (lastPass == LastPass::Start) {
-    lastCrossUs = 0;
-  } else if (lastPass == LastPass::Lap) {
-    Lap l = lapAt(lapCount - 1);
-    popAt(lapCount - 1);
+  if (c.lastPass == LastPass::Start) {
+    c.lastCrossUs = 0;
+  } else if (c.lastPass == LastPass::Lap && lastLapOf(car) >= 0) {
+    int i = lastLapOf(car);
+    Lap l = lapAt(i);
+    popAt(i);
+    c.num--;
     if (!l.deleted) removeFromStats(l);
-    lastCrossUs = prevCrossUs;                        // the current lap continues from the real previous pass
+    c.lastCrossUs = c.prevCrossUs;                    // the lap continues from the real previous pass
   } else {
     ok = false;
   }
-  lastPass = LastPass::None;                          // only one level of undo
+  c.lastPass = LastPass::None;                        // only one level of undo
   if (ok) changed();
   UNLOCK();
   return ok;
 }
 
-void lapsRestart() {
+void lapsRestart(int car) {
+  if (!validCar(car)) return;
   LOCK();
-  lastCrossUs = 0;
-  lastPass = LastPass::None;
+  cars[car].lastCrossUs = 0;
+  cars[car].lastPass = LastPass::None;
   changed();
   UNLOCK();
 }
 
-bool lapsDelete(int number) {
+bool lapsDelete(int seq) {
   LOCK();
-  bool ok = number >= 1 && number <= lapCount && number > oldestKept();
+  int i = seq - 1;
+  bool ok = seq >= 1 && seq <= lapCount && i >= oldestKept();
   if (ok) {
-    Lap& l = lapAt(number - 1);
+    Lap& l = lapAt(i);
     ok = !l.deleted;
     if (ok) {
       l.deleted = true;
       removeFromStats(l);
-      if (number == lapCount && lastPass == LastPass::Lap) lastPass = LastPass::None;
+      Car& c = cars[l.car];
+      if (i == lastLapOf(l.car) && c.lastPass == LastPass::Lap) c.lastPass = LastPass::None;
       changed();
     }
   }
@@ -177,21 +204,30 @@ bool lapsContinues(const Lap& prev, const Lap& next) {
   return gap >= -1000 && gap <= 1000;
 }
 
-bool lapsJoin(int number) {
+bool lapsJoin(int seq) {
   LOCK();
-  int i = number - 1;                                 // index of the first piece
-  bool ok = number >= 1 && number < lapCount && i >= oldestKept();
+  int i = seq - 1;                                    // index of the first piece
+  bool ok = seq >= 1 && seq <= lapCount && i >= oldestKept();
+  int j = -1;                                         // the same car's next lap
   if (ok) {
-    Lap a = lapAt(i), b = lapAt(i + 1);
+    for (int k = i + 1; k < lapCount; k++) if (lapAt(k).car == lapAt(i).car) { j = k; break; }
+    ok = j > 0;
+  }
+  if (ok) {
+    Lap a = lapAt(i), b = lapAt(j);
     ok = !a.deleted && !b.deleted && a.driver == b.driver && lapsContinues(a, b);
     if (ok) {
+      Car& c = cars[a.car];
+      bool bWasLast = j == lastLapOf(a.car);
       lapAt(i).deleted = true;                        // out of the best-lap search while stats update
       removeFromStats(a);
-      popAt(i + 1);
+      popAt(j);
       removeFromStats(b);
-      lapAt(i) = { b.endUs, a.ms + b.ms, a.driver, false };
+      for (int k = j; k < lapCount; k++) if (lapAt(k).car == a.car) lapAt(k).num--;
+      c.num--;
+      lapAt(i) = { b.endUs, a.ms + b.ms, a.num, a.car, a.driver, false, a.precise && b.precise };
       addToStats(lapAt(i));
-      if (lastPass == LastPass::Lap && i + 1 == lapCount) prevCrossUs = a.endUs - (int64_t)a.ms * 1000;
+      if (bWasLast && c.lastPass == LastPass::Lap) c.prevCrossUs = a.endUs - (int64_t)a.ms * 1000;
       changed();
     }
   }
@@ -205,9 +241,10 @@ static long sinceMs(int64_t last, int64_t nowUs) {
 
 void lapsSnapshot(LapSnapshot& out, int64_t nowUs) {
   LOCK();
-  int64_t last = lastCrossUs;
-  out.driver  = driver;
-  out.canUndo = lastPass != LastPass::None;
+  for (int k = 0; k < MAX_CARS; k++) {
+    const Car& c = cars[k];
+    out.cars[k] = { c.lastCrossUs != 0, sinceMs(c.lastCrossUs, nowUs), c.lastPass != LastPass::None, c.driver, c.num };
+  }
   out.count   = lapCount;
   out.ignored = ignored;
   out.n = lapCount - oldestKept();
@@ -220,14 +257,12 @@ void lapsSnapshot(LapSnapshot& out, int64_t nowUs) {
     if (b && (out.bestMs == 0 || b < out.bestMs)) out.bestMs = b;
   }
   UNLOCK();
-
-  out.running = last != 0;
-  out.curMs   = sinceMs(last, nowUs);
 }
 
-long lapsCurrentMs(int64_t nowUs) {
+long lapsCurrentMs(int car, int64_t nowUs) {
+  if (!validCar(car)) return 0;
   LOCK();
-  int64_t last = lastCrossUs;
+  int64_t last = cars[car].lastCrossUs;
   UNLOCK();
   return sinceMs(last, nowUs);
 }

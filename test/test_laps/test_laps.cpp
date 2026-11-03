@@ -12,30 +12,30 @@ static const LapSnapshot& take(double atSeconds = 100) {
   return snap;
 }
 
-static const DriverStats* statsOf(uint8_t id) {
-  for (int i = 0; i < snap.nStats; i++) if (snap.stats[i].id == id) return &snap.stats[i];
+static const DriverStats* statsOf(uint16_t id) {
+  for (int i = 0; i < snap.nStats; i++) if (snap.stats[i].key == id) return &snap.stats[i];
   return nullptr;
 }
 
 void setUp() {
-  lapsSetDriver(0);
+  lapsSetDriver(0, 0);
   lapsReset();
 }
 void tearDown() {}
 
 // ---------------------------------------------------------------- basic timing
 void test_first_pass_only_starts() {
-  lapsCrossing(s(1), MIN_LAP);
+  lapsCrossing(0, s(1), MIN_LAP);
   take(3.5);
-  TEST_ASSERT_TRUE(snap.running);
+  TEST_ASSERT_TRUE(snap.cars[0].running);
   TEST_ASSERT_EQUAL(0, snap.count);
-  TEST_ASSERT_EQUAL(2500, snap.curMs);
-  TEST_ASSERT_TRUE(snap.canUndo);
+  TEST_ASSERT_EQUAL(2500, snap.cars[0].curMs);
+  TEST_ASSERT_TRUE(snap.cars[0].canUndo);
 }
 
 void test_second_pass_records_lap_rounded_to_ms() {
-  lapsCrossing(s(1), MIN_LAP);
-  lapsCrossing(s(1) + 8123600, MIN_LAP);   // 8123.6 ms
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(1) + 8123600, MIN_LAP);   // 8123.6 ms
   take();
   TEST_ASSERT_EQUAL(1, snap.count);
   TEST_ASSERT_EQUAL(8124, snap.laps[0].ms);
@@ -43,9 +43,9 @@ void test_second_pass_records_lap_rounded_to_ms() {
 }
 
 void test_pass_shorter_than_min_lap_is_ignored() {
-  lapsCrossing(s(1), MIN_LAP);
-  lapsCrossing(s(2.5), MIN_LAP);
-  lapsCrossing(s(9), MIN_LAP);
+  lapsCrossing(0, s(1), MIN_LAP);
+  lapsCrossing(0, s(2.5), MIN_LAP);
+  lapsCrossing(0, s(9), MIN_LAP);
   take();
   TEST_ASSERT_EQUAL(1, snap.ignored);
   TEST_ASSERT_EQUAL(1, snap.count);
@@ -53,44 +53,44 @@ void test_pass_shorter_than_min_lap_is_ignored() {
 }
 
 void test_best_is_minimum() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  lapsCrossing(s(17), MIN_LAP);
-  lapsCrossing(s(26), MIN_LAP);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsCrossing(0, s(17), MIN_LAP);
+  lapsCrossing(0, s(26), MIN_LAP);
   take();
   TEST_ASSERT_EQUAL(3, snap.count);
   TEST_ASSERT_EQUAL(7000, snap.bestMs);
 }
 
 void test_reset_clears_session_but_keeps_driver() {
-  lapsSetDriver(3);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
+  lapsSetDriver(0, 3);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
   lapsReset();
   take();
-  TEST_ASSERT_FALSE(snap.running);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
   TEST_ASSERT_EQUAL(0, snap.count);
   TEST_ASSERT_EQUAL(0, snap.nStats);
   TEST_ASSERT_EQUAL(0, snap.bestMs);
-  TEST_ASSERT_EQUAL(3, snap.driver);
-  TEST_ASSERT_FALSE(snap.canUndo);
+  TEST_ASSERT_EQUAL(3, snap.cars[0].driver);
+  TEST_ASSERT_FALSE(snap.cars[0].canUndo);
 }
 
 void test_revision_changes_on_crossing() {
   uint32_t before = lapsRevision();
-  lapsCrossing(s(0), MIN_LAP);
+  lapsCrossing(0, s(0), MIN_LAP);
   TEST_ASSERT_NOT_EQUAL(before, lapsRevision());
 }
 
 // ---------------------------------------------------------------- drivers
 void test_laps_are_attributed_to_driver_and_stats_kept() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  lapsCrossing(s(18), MIN_LAP);
-  lapsSetDriver(2);
-  lapsCrossing(s(30), MIN_LAP);
-  lapsCrossing(s(39), MIN_LAP);
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsCrossing(0, s(18), MIN_LAP);
+  lapsSetDriver(0, 2);
+  lapsCrossing(0, s(30), MIN_LAP);
+  lapsCrossing(0, s(39), MIN_LAP);
   take();
 
   TEST_ASSERT_EQUAL(3, snap.count);
@@ -110,30 +110,30 @@ void test_laps_are_attributed_to_driver_and_stats_kept() {
 }
 
 void test_switching_driver_drops_lap_in_progress() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsSetDriver(2);
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsSetDriver(0, 2);
   take(5);
-  TEST_ASSERT_FALSE(snap.running);
-  lapsCrossing(s(6), MIN_LAP);              // new driver's start pass
-  lapsCrossing(s(15), MIN_LAP);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
+  lapsCrossing(0, s(6), MIN_LAP);              // new driver's start pass
+  lapsCrossing(0, s(15), MIN_LAP);
   take();
   TEST_ASSERT_EQUAL(1, snap.count);
   TEST_ASSERT_EQUAL(9000, snap.laps[0].ms);
 }
 
 void test_selecting_same_driver_keeps_lap() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsSetDriver(1);
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsSetDriver(0, 1);
   take(5);
-  TEST_ASSERT_TRUE(snap.running);
+  TEST_ASSERT_TRUE(snap.cars[0].running);
 }
 
 void test_forget_driver_drops_stats() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
   lapsForgetDriver(1);
   take();
   TEST_ASSERT_NULL(statsOf(1));
@@ -142,30 +142,30 @@ void test_forget_driver_drops_stats() {
 
 // ---------------------------------------------------------------- corrections
 void test_undo_false_trigger_continues_lap_from_previous_pass() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);             // real lap: 10 s
-  lapsCrossing(s(14), MIN_LAP);             // false trigger mid-lap: "4 s lap"
-  TEST_ASSERT_TRUE(lapsUndo());
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);             // real lap: 10 s
+  lapsCrossing(0, s(14), MIN_LAP);             // false trigger mid-lap: "4 s lap"
+  TEST_ASSERT_TRUE(lapsUndo(0));
   take(15);
   TEST_ASSERT_EQUAL(1, snap.count);
-  TEST_ASSERT_EQUAL(5000, snap.curMs);      // current lap runs from 10 s, not from 14 s
+  TEST_ASSERT_EQUAL(5000, snap.cars[0].curMs);      // current lap runs from 10 s, not from 14 s
   TEST_ASSERT_EQUAL(10000, snap.bestMs);
-  TEST_ASSERT_FALSE(snap.canUndo);
+  TEST_ASSERT_FALSE(snap.cars[0].canUndo);
 
-  lapsCrossing(s(19), MIN_LAP);             // real end of the lap
+  lapsCrossing(0, s(19), MIN_LAP);             // real end of the lap
   take();
   TEST_ASSERT_EQUAL(2, snap.count);
   TEST_ASSERT_EQUAL(9000, snap.laps[1].ms);
 }
 
 void test_undo_restores_best_and_stats() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  lapsCrossing(s(13), MIN_LAP);             // false 3 s "best"
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsCrossing(0, s(13), MIN_LAP);             // false 3 s "best"
   take();
   TEST_ASSERT_EQUAL(3000, snap.bestMs);
-  lapsUndo();
+  lapsUndo(0);
   take();
   TEST_ASSERT_EQUAL(10000, snap.bestMs);
   TEST_ASSERT_EQUAL(1, statsOf(1)->count);
@@ -173,50 +173,50 @@ void test_undo_restores_best_and_stats() {
 }
 
 void test_undo_start_pass() {
-  lapsCrossing(s(0), MIN_LAP);
-  TEST_ASSERT_TRUE(lapsUndo());
+  lapsCrossing(0, s(0), MIN_LAP);
+  TEST_ASSERT_TRUE(lapsUndo(0));
   take();
-  TEST_ASSERT_FALSE(snap.running);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
 }
 
 void test_undo_only_once_and_not_without_pass() {
-  TEST_ASSERT_FALSE(lapsUndo());
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  TEST_ASSERT_TRUE(lapsUndo());
-  TEST_ASSERT_FALSE(lapsUndo());
+  TEST_ASSERT_FALSE(lapsUndo(0));
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  TEST_ASSERT_TRUE(lapsUndo(0));
+  TEST_ASSERT_FALSE(lapsUndo(0));
 }
 
 void test_ignored_pass_does_not_change_undo_target() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  lapsCrossing(s(11), MIN_LAP);             // ignored (< min lap)
-  TEST_ASSERT_TRUE(lapsUndo());             // still undoes the 10 s lap
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsCrossing(0, s(11), MIN_LAP);             // ignored (< min lap)
+  TEST_ASSERT_TRUE(lapsUndo(0));             // still undoes the 10 s lap
   take();
   TEST_ASSERT_EQUAL(0, snap.count);
-  TEST_ASSERT_EQUAL(100000, snap.curMs);    // timing from the start pass again
+  TEST_ASSERT_EQUAL(100000, snap.cars[0].curMs);    // timing from the start pass again
 }
 
 void test_restart_drops_lap_in_progress() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
-  lapsRestart();
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
+  lapsRestart(0);
   take();
-  TEST_ASSERT_FALSE(snap.running);
+  TEST_ASSERT_FALSE(snap.cars[0].running);
   TEST_ASSERT_EQUAL(1, snap.count);         // finished laps stay
-  TEST_ASSERT_FALSE(snap.canUndo);
-  lapsCrossing(s(50), MIN_LAP);             // start pass
-  lapsCrossing(s(58), MIN_LAP);
+  TEST_ASSERT_FALSE(snap.cars[0].canUndo);
+  lapsCrossing(0, s(50), MIN_LAP);             // start pass
+  lapsCrossing(0, s(58), MIN_LAP);
   take();
   TEST_ASSERT_EQUAL(8000, snap.laps[1].ms);
 }
 
 void test_delete_lap_updates_stats_and_best() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(5), MIN_LAP);              // lap 1: 5 s (car cut the track)
-  lapsCrossing(s(13), MIN_LAP);             // lap 2: 8 s
-  lapsCrossing(s(22), MIN_LAP);             // lap 3: 9 s
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(5), MIN_LAP);              // lap 1: 5 s (car cut the track)
+  lapsCrossing(0, s(13), MIN_LAP);             // lap 2: 8 s
+  lapsCrossing(0, s(22), MIN_LAP);             // lap 3: 9 s
   TEST_ASSERT_TRUE(lapsDelete(1));
   take();
   TEST_ASSERT_EQUAL(3, snap.count);         // numbering stays
@@ -228,8 +228,8 @@ void test_delete_lap_updates_stats_and_best() {
 }
 
 void test_delete_invalid_or_twice() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
   TEST_ASSERT_FALSE(lapsDelete(0));
   TEST_ASSERT_FALSE(lapsDelete(2));
   TEST_ASSERT_TRUE(lapsDelete(1));
@@ -237,21 +237,21 @@ void test_delete_invalid_or_twice() {
 }
 
 void test_delete_last_lap_disables_undo() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(10), MIN_LAP);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(10), MIN_LAP);
   lapsDelete(1);
   take();
-  TEST_ASSERT_FALSE(snap.canUndo);
-  TEST_ASSERT_TRUE(snap.running);           // timing continues
+  TEST_ASSERT_FALSE(snap.cars[0].canUndo);
+  TEST_ASSERT_TRUE(snap.cars[0].running);           // timing continues
 }
 
 void test_join_merges_lap_split_by_false_trigger() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(9), MIN_LAP);              // lap 1: 9 s
-  lapsCrossing(s(12.5), MIN_LAP);           // false trigger → lap 2: 3.5 s
-  lapsCrossing(s(18), MIN_LAP);             // lap 3: 5.5 s, the rest of the real lap
-  lapsCrossing(s(27), MIN_LAP);             // lap 4: 9 s
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(9), MIN_LAP);              // lap 1: 9 s
+  lapsCrossing(0, s(12.5), MIN_LAP);           // false trigger → lap 2: 3.5 s
+  lapsCrossing(0, s(18), MIN_LAP);             // lap 3: 5.5 s, the rest of the real lap
+  lapsCrossing(0, s(27), MIN_LAP);             // lap 4: 9 s
   take();
   TEST_ASSERT_EQUAL(3500, snap.bestMs);
 
@@ -267,57 +267,142 @@ void test_join_merges_lap_split_by_false_trigger() {
 }
 
 void test_join_last_lap_keeps_timing_and_undo() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(9), MIN_LAP);
-  lapsCrossing(s(12), MIN_LAP);             // false trigger
-  lapsCrossing(s(18), MIN_LAP);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(9), MIN_LAP);
+  lapsCrossing(0, s(12), MIN_LAP);             // false trigger
+  lapsCrossing(0, s(18), MIN_LAP);
   TEST_ASSERT_TRUE(lapsJoin(2));
   take(20);
   TEST_ASSERT_EQUAL(2, snap.count);
   TEST_ASSERT_EQUAL(9000, snap.laps[1].ms);
-  TEST_ASSERT_EQUAL(2000, snap.curMs);      // current lap still timed from the 18 s pass
-  TEST_ASSERT_TRUE(lapsUndo());             // undo the 18 s pass: the merged lap goes back to running
+  TEST_ASSERT_EQUAL(2000, snap.cars[0].curMs);      // current lap still timed from the 18 s pass
+  TEST_ASSERT_TRUE(lapsUndo(0));             // undo the 18 s pass: the merged lap goes back to running
   take(20);
   TEST_ASSERT_EQUAL(1, snap.count);
-  TEST_ASSERT_EQUAL(11000, snap.curMs);
+  TEST_ASSERT_EQUAL(11000, snap.cars[0].curMs);
 }
 
 void test_join_rejects_non_contiguous_or_mixed_laps() {
-  lapsSetDriver(1);
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(9), MIN_LAP);              // lap 1
-  lapsRestart();
-  lapsCrossing(s(20), MIN_LAP);
-  lapsCrossing(s(29), MIN_LAP);             // lap 2, not contiguous with lap 1
+  lapsSetDriver(0, 1);
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(9), MIN_LAP);              // lap 1
+  lapsRestart(0);
+  lapsCrossing(0, s(20), MIN_LAP);
+  lapsCrossing(0, s(29), MIN_LAP);             // lap 2, not contiguous with lap 1
   TEST_ASSERT_FALSE(lapsJoin(1));
-  lapsCrossing(s(38), MIN_LAP);             // lap 3
+  lapsCrossing(0, s(38), MIN_LAP);             // lap 3
   lapsDelete(3);
   TEST_ASSERT_FALSE(lapsJoin(2));           // deleted
   TEST_ASSERT_FALSE(lapsJoin(3));           // no next lap
   TEST_ASSERT_FALSE(lapsJoin(0));
 
-  lapsSetDriver(2);                         // driver switch also breaks contiguity
-  lapsCrossing(s(40), MIN_LAP);
-  lapsCrossing(s(49), MIN_LAP);             // lap 4, driver 2
+  lapsSetDriver(0, 2);                         // driver switch also breaks contiguity
+  lapsCrossing(0, s(40), MIN_LAP);
+  lapsCrossing(0, s(49), MIN_LAP);             // lap 4, driver 2
   TEST_ASSERT_FALSE(lapsJoin(3));
 }
 
 void test_contiguity_tolerates_ms_rounding() {
-  lapsCrossing(s(0), MIN_LAP);
-  lapsCrossing(s(0) + 8000400, MIN_LAP);    // 8000.4 ms → 8000
-  lapsCrossing(s(0) + 11000900, MIN_LAP);   // 3000.5 ms → 3001
+  lapsCrossing(0, s(0), MIN_LAP);
+  lapsCrossing(0, s(0) + 8000400, MIN_LAP);    // 8000.4 ms → 8000
+  lapsCrossing(0, s(0) + 11000900, MIN_LAP);   // 3000.5 ms → 3001
   take();
   TEST_ASSERT_TRUE(lapsContinues(snap.laps[0], snap.laps[1]));
+}
+
+// ---------------------------------------------------------------- several cars
+static void clearAllCars() { for (int c = 0; c < MAX_CARS; c++) lapsSetDriver(c, 0); lapsReset(); }
+
+void test_cars_time_independently() {
+  clearAllCars();
+  lapsCrossing(1, s(0), MIN_LAP);
+  lapsCrossing(2, s(1), MIN_LAP);
+  lapsCrossing(1, s(9), MIN_LAP);           // car 1: 9 s
+  lapsCrossing(2, s(11), MIN_LAP);          // car 2: 10 s
+  lapsCrossing(1, s(17), MIN_LAP);          // car 1: 8 s
+  take(20);
+  TEST_ASSERT_EQUAL(3, snap.count);
+  TEST_ASSERT_EQUAL(1, snap.laps[0].car);
+  TEST_ASSERT_EQUAL(2, snap.laps[1].car);
+  TEST_ASSERT_EQUAL(1, snap.laps[0].num);   // lap numbers count per car
+  TEST_ASSERT_EQUAL(1, snap.laps[1].num);
+  TEST_ASSERT_EQUAL(2, snap.laps[2].num);
+  TEST_ASSERT_EQUAL(2, snap.cars[1].laps);
+  TEST_ASSERT_EQUAL(1, snap.cars[2].laps);
+  TEST_ASSERT_EQUAL(3000, snap.cars[1].curMs);
+  TEST_ASSERT_EQUAL(9000, snap.cars[2].curMs);
+  TEST_ASSERT_FALSE(snap.cars[3].running);
+  TEST_ASSERT_EQUAL(8000, snap.bestMs);
+}
+
+void test_laps_of_cars_without_driver_are_kept_apart() {
+  clearAllCars();
+  lapsCrossing(1, s(0), MIN_LAP);
+  lapsCrossing(2, s(0), MIN_LAP);
+  lapsCrossing(1, s(9), MIN_LAP);
+  lapsCrossing(2, s(10), MIN_LAP);
+  take();
+  TEST_ASSERT_NOT_NULL(statsOf(STATS_CAR | 1));
+  TEST_ASSERT_NOT_NULL(statsOf(STATS_CAR | 2));
+  TEST_ASSERT_EQUAL(9000, statsOf(STATS_CAR | 1)->bestMs);
+  TEST_ASSERT_EQUAL(10000, statsOf(STATS_CAR | 2)->bestMs);
+}
+
+void test_undo_affects_only_that_car() {
+  clearAllCars();
+  lapsCrossing(1, s(0), MIN_LAP);
+  lapsCrossing(2, s(1), MIN_LAP);
+  lapsCrossing(1, s(9), MIN_LAP);
+  lapsCrossing(1, s(12), MIN_LAP);          // car 1 false trigger
+  lapsCrossing(2, s(11), MIN_LAP);          // car 2 lap after it
+  TEST_ASSERT_TRUE(lapsUndo(1));
+  take(15);
+  TEST_ASSERT_EQUAL(2, snap.count);         // car 1's 3 s lap is gone, car 2's lap stays
+  TEST_ASSERT_EQUAL(1, snap.laps[0].car);
+  TEST_ASSERT_EQUAL(2, snap.laps[1].car);
+  TEST_ASSERT_EQUAL(6000, snap.cars[1].curMs);   // timed from the 9 s pass again
+  TEST_ASSERT_EQUAL(1, snap.cars[1].laps);
+  TEST_ASSERT_TRUE(snap.cars[2].canUndo);
+}
+
+void test_join_with_other_cars_laps_in_between() {
+  clearAllCars();
+  lapsCrossing(1, s(0), MIN_LAP);
+  lapsCrossing(2, s(0.5), MIN_LAP);
+  lapsCrossing(1, s(9), MIN_LAP);           // car 1 lap 1: 9 s
+  lapsCrossing(1, s(12), MIN_LAP);          // car 1 lap 2: 3 s (false trigger)
+  lapsCrossing(2, s(10), MIN_LAP);          // car 2 lap 1 (session lap 3)
+  lapsCrossing(1, s(18), MIN_LAP);          // car 1 lap 3: 6 s
+  lapsCrossing(1, s(27), MIN_LAP);          // car 1 lap 4: 9 s
+  TEST_ASSERT_TRUE(lapsJoin(2));            // session lap 2 = car 1 lap 2, joins car 1 lap 3
+  take(30);
+  TEST_ASSERT_EQUAL(4, snap.count);
+  TEST_ASSERT_EQUAL(9000, snap.laps[1].ms);
+  TEST_ASSERT_EQUAL(2, snap.laps[1].num);
+  TEST_ASSERT_EQUAL(2, snap.laps[2].car);   // car 2's lap is untouched
+  TEST_ASSERT_EQUAL(1, snap.laps[2].num);
+  TEST_ASSERT_EQUAL(3, snap.laps[3].num);   // car 1's last lap renumbered 4 → 3
+  TEST_ASSERT_EQUAL(3, snap.cars[1].laps);
+}
+
+void test_imprecise_flag_kept() {
+  clearAllCars();
+  lapsCrossing(1, s(0), MIN_LAP, false);
+  lapsCrossing(1, s(9), MIN_LAP, false);
+  lapsCrossing(1, s(18), MIN_LAP, true);
+  take();
+  TEST_ASSERT_FALSE(snap.laps[0].precise);
+  TEST_ASSERT_TRUE(snap.laps[1].precise);
 }
 
 // ---------------------------------------------------------------- ring buffer
 void test_undo_and_join_with_full_ring_never_expose_overwritten_laps() {
   int64_t t = s(0);
-  lapsCrossing(t, MIN_LAP);
-  for (int i = 1; i <= MAX_LAPS + 10; i++) { t += (10000 + i) * 1000LL; lapsCrossing(t, MIN_LAP); }
+  lapsCrossing(0, t, MIN_LAP);
+  for (int i = 1; i <= MAX_LAPS + 10; i++) { t += (10000 + i) * 1000LL; lapsCrossing(0, t, MIN_LAP); }
   take(100000);
   uint32_t oldest = snap.laps[0].ms;
-  TEST_ASSERT_TRUE(lapsUndo());
+  TEST_ASSERT_TRUE(lapsUndo(0));
   take(100000);
   TEST_ASSERT_EQUAL(MAX_LAPS - 1, snap.n);  // one fewer kept, not an overwritten slot brought back
   TEST_ASSERT_EQUAL(oldest, snap.laps[0].ms);
@@ -326,22 +411,22 @@ void test_undo_and_join_with_full_ring_never_expose_overwritten_laps() {
   TEST_ASSERT_EQUAL(MAX_LAPS - 2, snap.n);
   TEST_ASSERT_EQUAL(oldest, snap.laps[0].ms);
 
-  t += 9000000; lapsCrossing(t, MIN_LAP);   // new laps fill the ring again
-  t += 9000000; lapsCrossing(t, MIN_LAP);
-  t += 9000000; lapsCrossing(t, MIN_LAP);
+  t += 9000000; lapsCrossing(0, t, MIN_LAP);   // new laps fill the ring again
+  t += 9000000; lapsCrossing(0, t, MIN_LAP);
+  t += 9000000; lapsCrossing(0, t, MIN_LAP);
   take(100000);
   TEST_ASSERT_EQUAL(MAX_LAPS, snap.n);
   TEST_ASSERT_EQUAL(9000, snap.laps[MAX_LAPS - 1].ms);
 }
 
 void test_ring_buffer_keeps_last_laps_and_stats_of_all() {
-  lapsSetDriver(1);
+  lapsSetDriver(0, 1);
   const int total = MAX_LAPS + 25;
   int64_t t = s(0);
-  lapsCrossing(t, MIN_LAP);
+  lapsCrossing(0, t, MIN_LAP);
   for (int i = 1; i <= total; i++) {                        // lap i takes 10 s + i ms
     t += (10000 + i) * 1000LL;
-    lapsCrossing(t, MIN_LAP);
+    lapsCrossing(0, t, MIN_LAP);
   }
   take(100000);
   TEST_ASSERT_EQUAL(total, snap.count);
@@ -380,6 +465,11 @@ int main() {
   RUN_TEST(test_join_last_lap_keeps_timing_and_undo);
   RUN_TEST(test_join_rejects_non_contiguous_or_mixed_laps);
   RUN_TEST(test_contiguity_tolerates_ms_rounding);
+  RUN_TEST(test_cars_time_independently);
+  RUN_TEST(test_laps_of_cars_without_driver_are_kept_apart);
+  RUN_TEST(test_undo_affects_only_that_car);
+  RUN_TEST(test_join_with_other_cars_laps_in_between);
+  RUN_TEST(test_imprecise_flag_kept);
   RUN_TEST(test_ring_buffer_keeps_last_laps_and_stats_of_all);
   RUN_TEST(test_undo_and_join_with_full_ring_never_expose_overwritten_laps);
   return UNITY_END();
