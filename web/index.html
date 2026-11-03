@@ -25,6 +25,7 @@
   <div class="card" id="raceCard" hidden>
     <div class="race-head"><span class="lbl" id="raceTitle">Race</span><span class="race-clock" id="raceClock"></span></div>
     <div class="countdown" id="countdown" hidden></div>
+    <div class="warn" id="beamWarn3" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
     <div id="heatNow" hidden>                 <!-- heats: the driver on the track, live -->
       <div class="hn-who"><span id="hnName"></span><span id="hnLap"></span></div>
       <div class="big" id="hnCur">--.---</div>
@@ -52,7 +53,7 @@
   <div class="card" id="curCard">
     <div class="lbl" id="state">Waiting for start pass</div>
     <div class="big" id="cur">--.---</div>
-    <div class="warn" id="beamWarn" hidden></div>
+    <div class="warn" id="beamWarn" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
     <div class="row">
       <button id="undo" disabled title="A false trigger split the lap: remove that pass, the lap continues">↶ Undo pass</button>
       <button id="restart" title="Drop the lap in progress, the next pass starts timing">⟲ Restart lap</button>
@@ -62,7 +63,7 @@
   <!-- several cars, training -->
   <div class="card" id="trackCard" hidden>
     <div class="lbl">On track</div>
-    <div class="warn" id="beamWarn2" hidden></div>
+    <div class="warn" id="beamWarn2" hidden><span></span> <button type="button" class="calnow" title="Measure the idle value again: the laser must be on the sensor">Calibrate now</button></div>
     <table class="board track">
       <thead><tr><th>Car</th><th>Lap</th><th>Now</th><th>Last</th><th>Best</th><th></th></tr></thead>
       <tbody id="track"></tbody>

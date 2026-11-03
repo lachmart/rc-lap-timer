@@ -173,3 +173,4 @@ button.wide { width: 100% }
 .hn-next .then { color: var(--mut); font-weight: 400; font-size: 13px; display: block; margin-top: 2px }
 .bv-next { font-size: clamp(18px, 4.5vw, 40px); color: var(--mut); margin-top: .3em }
 .bv-next.ready { color: var(--gold); font-weight: 700 }
+.warn .calnow { margin-top: 8px; width: 100% }

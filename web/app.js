@@ -376,11 +376,12 @@ function renderBeamWarning(broken) {
   else if (!brokenSince) brokenSince = now;
   const secs = brokenSince ? Math.round((now - brokenSince) / 1000) : 0;
   const blocked = secs >= 3;
+  // A stale idle value looks the same: calibrated without the laser on the sensor (e.g. at power-up)
   const msg = `Beam blocked for ${secs} s, ${multi() ? 'passes are timed by transponder only' : 'laps aren\'t counted'}. `
-    + 'Check the laser aim or clear the gate.';
-  for (const id of ['beamWarn', 'beamWarn2', 'bvWarn']) {
+    + 'Clear the gate or check the laser aim. If the laser is on the sensor, calibrate again.';
+  for (const id of ['beamWarn', 'beamWarn2', 'beamWarn3', 'bvWarn']) {
     $(id).hidden = !blocked;
-    if (blocked) $(id).textContent = msg;
+    if (blocked) (id === 'bvWarn' ? $(id) : $(id).firstElementChild).textContent = msg;
   }
   $('ssum').textContent = blocked ? '· beam blocked' : '';
 }
@@ -439,6 +440,7 @@ $('undo').onclick    = () => api('undo', { car: 0 });
 $('restart').onclick = () => api('restart', { car: 0 });
 $('reset').onclick   = () => api('reset', {}, 'Start a new session? All laps and the leaderboard are cleared, drivers and cars stay.');
 $('calibrate').onclick = () => api('calibrate');
+for (const b of document.querySelectorAll('.calnow')) b.onclick = () => api('calibrate');
 $('useSuggest').onclick = async () => {
   if (suggested > 0 && await api('config', { minLap: S.minLap, delta: suggested })) cfgLoaded = false;
 };
