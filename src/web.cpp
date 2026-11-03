@@ -44,38 +44,20 @@ static const char* raceStateName(RaceState r) {
   }
 }
 
-static String buildState() {
-  static LapSnapshot s;                // large array, keep it off the stack
-  int64_t now = esp_timer_get_time();
-  lapsSnapshot(s, now);
-  RaceInfo race = timingRace();
-  SensorLive live = sensorLive();
+static const char* jsonBool(bool b) { return b ? "true" : "false"; }
 
-  String j;
-  j.reserve(1200 + s.n * 44);
-  j += "{\"t\":\"state\",\"now\":"; j += (long)(now / 1000);   // ms; client converts the other times with it
-  j += ",\"multi\":";   j += settings.multi ? "true" : "false";
+static void addRace(String& j) {
+  RaceInfo race = timingRace();
   j += ",\"race\":{\"state\":\""; j += raceStateName(race.state);
   j += "\",\"go\":";    j += (long)(race.goUs / 1000);
   j += ",\"laps\":";    j += race.laps;
   j += ",\"minutes\":"; j += race.minutes;
   j += ",\"setLaps\":"; j += settings.raceLaps;
   j += ",\"setMin\":";  j += settings.raceMin;
-  j += "},\"count\":";  j += s.count;
-  j += ",\"best\":";    j += s.bestMs;
-  j += ",\"ignored\":"; j += s.ignored;
-  j += ",\"unident\":"; j += live.unidentified;
-  j += ",\"minLap\":";  j += settings.minLapMs;
-  j += ",\"delta\":";   j += settings.delta;
-  j += ",\"zround\":{\"on\":"; j += settings.zround ? "true" : "false";
-  j += ",\"connected\":"; j += zroundConnected() ? "true" : "false";
-  j += ",\"racing\":";  j += zroundRacing() ? "true" : "false";
-  j += "},\"ssid\":";   addJsonString(j, settings.ssid);
-  j += ",\"staIp\":\""; j += wlanStaIp(); j += '"';
-  j += ",\"sta\":\"";   j += wlanStaState(); j += '"';
-  j += ",\"staErr\":\""; j += wlanStaError(); j += '"';
-  j += ",\"hasPass\":";  j += settings.pass.length() ? "true" : "false";
+  j += '}';
+}
 
+static void addDrivers(String& j) {
   j += ",\"drivers\":[";
   for (int i = 0; i < driversCount(); i++) {
     if (i) j += ',';
@@ -83,7 +65,11 @@ static String buildState() {
     j += ",\"name\":"; addJsonString(j, driversAt(i).name);
     j += '}';
   }
-  j += "],\"cars\":[";                 // used slots only
+  j += ']';
+}
+
+static void addCars(String& j, const LapSnapshot& s) {
+  j += ",\"cars\":[";                // used slots only
   bool first = true;
   for (int c = 0; c < MAX_CARS; c++) {
     if (!carsUsed(c)) continue;
@@ -94,13 +80,17 @@ static String buildState() {
     j += ",\"tx\":";      j += carsAt(c).tx;
     j += ",\"name\":";    addJsonString(j, carsAt(c).name);
     j += ",\"driver\":";  j += cs.driver;
-    j += ",\"running\":"; j += cs.running ? "true" : "false";
+    j += ",\"running\":"; j += jsonBool(cs.running);
     j += ",\"cur\":";     j += cs.curMs;
-    j += ",\"canUndo\":"; j += cs.canUndo ? "true" : "false";
+    j += ",\"canUndo\":"; j += jsonBool(cs.canUndo);
     j += ",\"laps\":";    j += cs.laps;
     j += '}';
   }
-  j += "],\"stats\":[";
+  j += ']';
+}
+
+static void addStats(String& j, const LapSnapshot& s) {
+  j += ",\"stats\":[";
   for (int i = 0; i < s.nStats; i++) {
     const DriverStats& d = s.stats[i];
     if (i) j += ',';
@@ -110,8 +100,12 @@ static String buildState() {
     j += ",\"total\":";  j += d.totalMs;
     j += '}';
   }
-  // [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first
-  j += "],\"laps\":[";
+  j += ']';
+}
+
+// [ms, driver, deleted, continues the car's previous lap, car, lap number of the car, precise, end ms], oldest first
+static void addLaps(String& j, const LapSnapshot& s) {
+  j += ",\"laps\":[";
   int prevOfCar[MAX_CARS];
   for (int c = 0; c < MAX_CARS; c++) prevOfCar[c] = -1;
   for (int i = 0; i < s.n; i++) {
@@ -128,7 +122,39 @@ static String buildState() {
     j += ','; j += (long)(l.endUs / 1000);
     j += ']';
   }
-  j += "]}";
+  j += ']';
+}
+
+static String buildState() {
+  static LapSnapshot s;                // large array, keep it off the stack
+  int64_t now = esp_timer_get_time();
+  lapsSnapshot(s, now);
+  SensorLive live = sensorLive();
+
+  String j;
+  j.reserve(1200 + s.n * 44);
+  j += "{\"t\":\"state\",\"now\":"; j += (long)(now / 1000);   // ms; client converts the other times with it
+  j += ",\"multi\":";   j += jsonBool(settings.multi);
+  addRace(j);
+  j += ",\"count\":";   j += s.count;
+  j += ",\"best\":";    j += s.bestMs;
+  j += ",\"ignored\":"; j += s.ignored;
+  j += ",\"unident\":"; j += live.unidentified;
+  j += ",\"minLap\":";  j += settings.minLapMs;
+  j += ",\"delta\":";   j += settings.delta;
+  j += ",\"zround\":{\"on\":"; j += jsonBool(settings.zround);
+  j += ",\"connected\":"; j += jsonBool(zroundConnected());
+  j += ",\"racing\":";  j += jsonBool(zroundRacing());
+  j += "},\"ssid\":";   addJsonString(j, settings.ssid);
+  j += ",\"staIp\":\""; j += wlanStaIp(); j += '"';
+  j += ",\"sta\":\"";   j += wlanStaState(); j += '"';
+  j += ",\"staErr\":\""; j += wlanStaError(); j += '"';
+  j += ",\"hasPass\":";  j += jsonBool(settings.pass.length());
+  addDrivers(j);
+  addCars(j, s);
+  addStats(j, s);
+  addLaps(j, s);
+  j += '}';
   return j;
 }
 
@@ -138,7 +164,7 @@ static String buildLive() {
   String j = "{\"t\":\"live\",\"raw\":";
   j += l.raw;
   j += ",\"base\":";    j += l.base;
-  j += ",\"broken\":";  j += l.broken ? "true" : "false";
+  j += ",\"broken\":";  j += jsonBool(l.broken);
   j += ",\"cur\":[";                   // lap in progress per car slot
   for (int c = 0; c < MAX_CARS; c++) { if (c) j += ','; j += lapsCurrentMs(c, now); }
   j += "],\"noise\":";  j += l.noise;
@@ -185,7 +211,7 @@ static void handleWifi() {
 
 static void handleScanResults() {
   String j = "{\"scanning\":";
-  j += wlanScanning() ? "true" : "false";
+  j += jsonBool(wlanScanning());
   j += ",\"networks\":[";
   const WlanNetwork* list;
   int n = wlanScanResults(list);
@@ -193,7 +219,7 @@ static void handleScanResults() {
     if (i) j += ',';
     j += "{\"ssid\":"; addJsonString(j, list[i].ssid);
     j += ",\"rssi\":"; j += list[i].rssi;
-    j += ",\"open\":"; j += list[i].open ? "true" : "false";
+    j += ",\"open\":"; j += jsonBool(list[i].open);
     j += '}';
   }
   j += "]}";
