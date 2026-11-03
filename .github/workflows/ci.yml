@@ -1,0 +1,33 @@
+# Host tests and firmware builds on every push and pull request. Nothing is uploaded anywhere.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini', 'transponder/platformio.ini') }}
+      - run: pip install platformio
+      - name: Firmware unit tests
+        run: pio test -e native
+      - name: Web app tests
+        run: node --test test/js/*.test.js
+      - name: Mock server matches the firmware
+        run: python3 -m unittest discover -s test/py
+      - name: Firmware build
+        run: pio run -e esp32dev
+      - name: Transponder build
+        run: pio run -d transponder
