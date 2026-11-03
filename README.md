@@ -58,10 +58,12 @@ src/
   nec.*, blink.*   transponder decoders: RiCino NEC code, NE556 blink rate (unit-tested)
   passes.*         beam breaks + transponder sightings → passings (unit-tested)
   timing.*         passings → cars → laps, single/multi-car mode, races
+  raceclock.*      race phases: countdown, go, which passings count (unit-tested)
   laps.*           per-car laps, per-driver stats, corrections (unit-tested)
   cars.*           transponder cars (learned, saved), who drives which car
   drivers.*        driver names in flash
-  zround.*         USB: debug log or ZRound decoder protocol
+  zround.*         USB: debug log or ZRound decoder
+  zroundproto.*    the ZRound/RiCino serial protocol (unit-tested)
   wlan.*           Wi-Fi AP + captive portal, home Wi-Fi in the background, mDNS
   ota.*            firmware upload over Wi-Fi
   web.*            HTTP server, API, WebSocket
@@ -74,9 +76,10 @@ web/
   race.js          race standings, lap entry fields (unit-tested with node)
   sound.js         beep, voice, vibration
   wifi.js          home Wi-Fi panel
+  raceview.js      race view, race setup, big view
 transponder/       ATtiny202 transponder firmware + circuit (separate PlatformIO project)
 docs/multi-car.md  multi-car design
-test/              unit tests (C++ for the firmware modules, JS for race.js)
+test/              unit tests (C++ for the firmware modules, JS for race.js, Python: mock matches firmware)
 tools/
   mock_server.py   fake timer for trying the app without the board
 ```
@@ -102,8 +105,9 @@ to RC_Lap_Timer and run `pio run -e ota -t upload`. On the home network use
 ## Develop without the board
 
 ```
-pio test -e native                                  # firmware unit tests (laps, beam, decoders, passes)
+pio test -e native                                  # firmware unit tests (laps, beam, decoders, passes, race, ZRound, JSON)
 node --test test/js/*.test.js                       # race standings tests
+python3 -m unittest discover -s test/py             # the mock sends the same JSON as the firmware
 python3 tools/mock_server.py --drivers Martin,Jana  # fake timer with a simulated car
 python3 tools/mock_server.py --cars 5 --drivers Martin,Jana,Tom,Eva,Petr   # five transponder cars
 ```
