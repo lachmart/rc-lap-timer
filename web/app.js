@@ -147,6 +147,10 @@ function placeLaps() {
   const inRace = tab === 'Race' && racing();
   const home = inRace ? $('tabRace') : $('tabTraining');
   if ($('lapsCard').parentElement !== home) home.insertBefore($('lapsCard'), inRace ? null : $('reset'));
+  // Several cars: who drives which car is also set up before a race (one car: the heat order does it)
+  const setup = tab === 'Race' && !racing() && multi();
+  const dHome = setup ? $('tabRace') : $('tabTraining');
+  if ($('driversCard').parentElement !== dHome) dHome.insertBefore($('driversCard'), setup ? null : $('lastBest'));
 }
 
 function renderLayout() {

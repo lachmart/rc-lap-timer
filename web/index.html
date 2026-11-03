@@ -20,6 +20,11 @@
     <button class="pill" id="voice" aria-pressed="false" title="Read out lap times">Voice</button>
     <span id="conn" title="Connection to the timer"><span class="dot" id="dot"></span><span id="ctxt">connecting</span></span>
     <button class="icon" id="bigOpen" title="Big view, readable from a distance" aria-label="Big view">⛶</button>
+    <nav class="tabs" id="tabs">
+      <button data-tab="Training" class="on">Training</button>
+      <button data-tab="Race">Race<span class="live" id="raceLive" hidden></span></button>
+      <button data-tab="Settings">Settings<span class="alert" id="setAlert" hidden></span></button>
+    </nav>
   </header>
 
   <!-- ================================================================ training -->
@@ -127,8 +132,14 @@
         <button type="button" class="step" data-step="1" aria-label="More">+</button>
       </div>
       <div id="heatSetup" hidden>
-        <h3>Drivers in turn</h3>
+        <div class="head"><h3>Drivers in turn</h3><button type="button" class="link" id="heatEdit" aria-pressed="false">Edit</button></div>
         <div class="chips" id="heatOrder"></div>
+        <form class="add" id="raceAddForm" hidden>
+          <input id="raceNewName" maxlength="16" placeholder="Driver name" autocomplete="off" enterkeyhint="done">
+          <button class="primary">Add</button>
+          <button type="button" id="raceAddCancel">Cancel</button>
+        </form>
+        <p class="hint" id="raceDmsg"></p>
         <p class="hint">Tap to leave a driver out, tap again to put them at the end. After a driver's last lap the
           timer hands the car to the next one; their time starts at the car's next crossing. Fastest total wins.</p>
       </div>
@@ -200,11 +211,6 @@
     </section>
   </main>
 
-  <nav class="tabs" id="tabs">
-    <button data-tab="Training" class="on">Training</button>
-    <button data-tab="Race">Race<span class="live" id="raceLive" hidden></span></button>
-    <button data-tab="Settings">Settings<span class="alert" id="setAlert" hidden></span></button>
-  </nav>
 
   <div class="bigview" id="bigView" hidden>
     <div id="bvSingle">

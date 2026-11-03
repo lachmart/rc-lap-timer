@@ -125,7 +125,7 @@ holds the beam broken.
    (captive portal). If it doesn't, open `http://192.168.4.1`.
 3. The first pass starts timing, every following pass records a lap.
 
-The app has three tabs at the bottom: **Training** (lap timing, drivers, leaderboard, laps), **Race**
+The app has three tabs at the top: **Training** (lap timing, drivers, leaderboard, laps), **Race**
 (set up and run races; it opens by itself when a race starts) and **Settings** (cars, sensor, Wi-Fi, USB).
 **Beep** and **Voice** at the top switch the lap sound and the spoken lap times; ⛶ opens the big view.
 
@@ -152,7 +152,7 @@ transponder near (a person, a car without one) are counted as "passes without a 
 
 ### Races
 
-On the **Race** tab choose a number of laps or minutes and **Start race**. The session is cleared and a
+On the **Race** tab choose a number of laps or minutes and **Start race**. Drivers can be added and removed there too (with several cars: who drives which car). The session is cleared and a
 countdown runs (3, 2, 1, go, also by voice). Crossings before "go" are ignored; each car's first crossing
 after "go" starts its timing. Standings: more laps first, then whoever crossed the line earlier. The race
 ends when the leader completes the last lap (or, in a time race, crosses the line after the time is up);

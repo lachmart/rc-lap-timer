@@ -7,6 +7,8 @@ let finishSaid = false;
 let heatSaid = -1;     // heat whose driver was last called up
 let finalSaid = -1;    // heat whose final lap was announced
 let heatPick = null;   // heats: driver ids in the chosen order, null = all drivers in list order
+let heatEditing = false;  // race setup: driver chips remove drivers
+let heatAdded = '';    // name just added in race setup: it joins the end of the order
 
 const clock = ms => {
   const s = Math.floor(ms / 1000);
@@ -240,18 +242,43 @@ function renderRaceKind() {
 }
 
 // Heats need one car, a laps race and drivers. The order is the tap order; untapped drivers sit out.
+// Heats need one car, a laps race and drivers; the setup offers to add drivers when there are none.
 const heatsPossible = () => S && !multi() && raceKind === 'laps' && S.drivers.length > 0;
+const heatSetupShown = () => S && !multi() && raceKind === 'laps';
 const heatOrder = () => !heatsPossible() ? []
   : heatPick ? heatPick.filter(id => S.drivers.some(d => d.id === id)) : S.drivers.map(d => d.id);
 
 function renderHeatOrder() {
-  $('heatSetup').hidden = !heatsPossible();
+  $('heatSetup').hidden = !heatSetupShown();
   $('raceRules').hidden = heatOrder().length > 0;     // the several-cars rules don't apply to heats
-  if (!heatsPossible()) return;
+  if (!heatSetupShown()) return;
+  const added = heatAdded && S.drivers.find(d => d.name === heatAdded);
+  if (added) { if (heatPick && !heatPick.includes(added.id)) heatPick.push(added.id); heatAdded = ''; }
+  if (!S.drivers.length) heatEditing = false;
+  $('heatSetup').classList.toggle('editing', heatEditing);
+  $('heatEdit').hidden = !S.drivers.length;
+  $('heatEdit').textContent = heatEditing ? 'Done' : 'Edit';
+  $('heatEdit').setAttribute('aria-pressed', heatEditing);
   const order = heatOrder();
   const rest = S.drivers.filter(d => !order.includes(d.id));
-  $('heatOrder').innerHTML = order.map((id, i) => `<button type="button" class="chip on" data-id="${id}">${i + 1}. ${esc(driverName(id))}</button>`)
-    .concat(rest.map(d => `<button type="button" class="chip" data-id="${d.id}">${esc(d.name)}</button>`)).join('');
+  const rm = heatEditing ? '<span class="rm" aria-hidden="true">✕</span>' : '';
+  const canAdd = !heatEditing && S.drivers.length < MAX_DRIVERS && $('raceAddForm').hidden;
+  $('heatOrder').innerHTML = order.map((id, i) => `<button type="button" class="chip${heatEditing ? '' : ' on'}" data-id="${id}">${heatEditing ? '' : i + 1 + '. '}${esc(driverName(id))}${rm}</button>`)
+    .concat(rest.map(d => `<button type="button" class="chip" data-id="${d.id}">${esc(d.name)}${rm}</button>`))
+    .concat(canAdd ? ['<button type="button" class="chip add" data-add="1">+ Add driver</button>'] : []).join('');
+  $('raceDmsg').textContent = heatEditing ? 'Tap a name to remove that driver. Their laps stay.'
+    : !S.drivers.length && $('raceAddForm').hidden ? 'Add drivers to race them in turn, or start without drivers and the car races alone.' : '';
+}
+
+function openRaceAdd() {
+  $('raceAddForm').hidden = false;
+  renderHeatOrder();
+  $('raceNewName').focus();
+}
+function closeRaceAdd() {
+  $('raceAddForm').hidden = true;
+  $('raceNewName').value = '';
+  renderHeatOrder();
 }
 
 // Race setup form from the last race's settings (once, like the settings form).
@@ -280,11 +307,28 @@ function raceViewInit() {
     renderRaceKind();
   };
   $('heatOrder').onclick = e => {
-    const id = +e.target.dataset.id;
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.add) { openRaceAdd(); return; }
+    const id = +b.dataset.id;
     if (!id) return;
+    if (heatEditing) { api('driver/remove', { id }, `Remove ${driverName(id)}? Their laps stay in the list.`); return; }
     const order = heatOrder();
     heatPick = order.includes(id) ? order.filter(x => x !== id) : [...order, id];
     renderRaceKind();
+  };
+  $('heatEdit').onclick = () => { heatEditing = !heatEditing; closeRaceAdd(); };
+  $('raceAddCancel').onclick = closeRaceAdd;
+  $('raceAddForm').onsubmit = async e => {
+    e.preventDefault();
+    const name = $('raceNewName').value.trim();
+    if (!name) return;
+    if (await api('driver/add', { name })) {
+      heatAdded = name;
+      closeRaceAdd();
+    } else {
+      $('raceDmsg').textContent = `Couldn't add "${name}": the name is taken or there are already ${MAX_DRIVERS} drivers.`;
+    }
   };
   $('raceStart').onclick = () => {
     const n = Math.max(1, Math.round(+$('raceLen').value || 0));
