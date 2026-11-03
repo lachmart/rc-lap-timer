@@ -514,7 +514,8 @@ def pusher():
 
 # ---------------------------------------------------------------- HTTP
 STATIC = {"/": ("index.html", "text/html"), "/style.css": ("style.css", "text/css"),
-          "/app.js": ("app.js", "application/javascript"), "/race.js": ("race.js", "application/javascript")}
+          "/app.js": ("app.js", "application/javascript"), "/race.js": ("race.js", "application/javascript"),
+          "/sound.js": ("sound.js", "application/javascript"), "/wifi.js": ("wifi.js", "application/javascript")}
 
 
 class Http(BaseHTTPRequestHandler):

@@ -19,6 +19,8 @@ extern const char INDEX_HTML[] asm("_binary_web_index_html_start");
 extern const char STYLE_CSS[]  asm("_binary_web_style_css_start");
 extern const char APP_JS[]     asm("_binary_web_app_js_start");
 extern const char RACE_JS[]    asm("_binary_web_race_js_start");
+extern const char SOUND_JS[]   asm("_binary_web_sound_js_start");
+extern const char WIFI_JS[]    asm("_binary_web_wifi_js_start");
 
 static WebServer        server(80);
 static WebSocketsServer ws(81);
@@ -146,6 +148,8 @@ void webBegin() {
   server.on("/style.css", HTTP_GET, []() { serveStatic("text/css", STYLE_CSS); });
   server.on("/app.js",    HTTP_GET, []() { serveStatic("application/javascript", APP_JS); });
   server.on("/race.js",   HTTP_GET, []() { serveStatic("application/javascript", RACE_JS); });
+  server.on("/sound.js",  HTTP_GET, []() { serveStatic("application/javascript", SOUND_JS); });
+  server.on("/wifi.js",   HTTP_GET, []() { serveStatic("application/javascript", WIFI_JS); });
   server.on("/api/state", HTTP_GET, []() { server.send(200, "application/json", buildState().c_str()); });
 
   // session

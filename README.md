@@ -65,11 +65,15 @@ src/
   wlan.*           Wi-Fi AP + captive portal, home Wi-Fi in the background, mDNS
   ota.*            firmware upload over Wi-Fi
   web.*            HTTP server, API, WebSocket
+  webjson.*        JSON messages for the app (unit-tested)
+  lines.h          newline-separated lists in flash (cars, drivers)
 web/
   index.html       the phone app
   style.css
-  app.js
-  race.js          race standings (unit-tested with node)
+  app.js           the client: state, rendering, actions
+  race.js          race standings, lap entry fields (unit-tested with node)
+  sound.js         beep, voice, vibration
+  wifi.js          home Wi-Fi panel
 transponder/       ATtiny202 transponder firmware + circuit (separate PlatformIO project)
 docs/multi-car.md  multi-car design
 test/              unit tests (C++ for the firmware modules, JS for race.js)
