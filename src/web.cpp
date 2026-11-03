@@ -23,7 +23,25 @@ extern const char SOUND_JS[]   asm("_binary_web_sound_js_start");
 extern const char WIFI_JS[]    asm("_binary_web_wifi_js_start");
 extern const char RACEVIEW_JS[] asm("_binary_web_raceview_js_start");
 
-static WebServer        server(80);
+// WebServer serves one connection at a time and waits up to 5 s (HTTP_MAX_DATA_WAIT, not overridable)
+// for its request. Phone browsers open spare connections that never send one, so every request
+// behind them waited 5 s per spare. An idle connection is dropped after IDLE_MS when another waits.
+class LapWebServer : public WebServer {
+ public:
+  using WebServer::WebServer;
+  void handleClient() override {
+    static constexpr uint32_t IDLE_MS = 200;
+    if (_currentStatus == HC_WAIT_READ && !_currentClient.available() &&
+        millis() - _statusChange > IDLE_MS && _server.hasClient()) {
+      _currentClient.stop();
+      _currentClient = NetworkClient();
+      _currentStatus = HC_NONE;
+    }
+    WebServer::handleClient();
+  }
+};
+
+static LapWebServer     server(80);
 static WebSocketsServer ws(81);
 
 static bool stateDirty = false;        // something outside laps changed, send state to all clients
