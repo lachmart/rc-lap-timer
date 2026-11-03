@@ -222,28 +222,33 @@
   </main>
 
 
+  <!-- big view: everything sized in em from one font size that fitBig() sets to fit the screen -->
   <div class="bigview" id="bigView" hidden>
-    <div id="bvSingle">
-      <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
-      <div class="bv-cur" id="bvCur">--.---</div>
-      <div class="bv-row">
-        <div><div class="sub">Last</div><div class="bv-mid" id="bvLast">--</div><div class="sub" id="bvLastd"></div></div>
-        <div><div class="sub">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="sub" id="bvBestd"></div></div>
+    <div class="bv-inner" id="bvInner">
+      <div id="bvSingle">
+        <div class="bv-top"><span id="bvLap"></span><span id="bvDriver"></span></div>
+        <div class="bv-cur" id="bvCur">--.---</div>
+        <div class="bv-row">
+          <div><div class="sub">Last</div><div class="bv-mid" id="bvLast">--</div><div class="sub" id="bvLastd"></div></div>
+          <div><div class="sub">Best</div><div class="bv-mid best" id="bvBest">--</div><div class="sub" id="bvBestd"></div></div>
+        </div>
       </div>
-    </div>
-    <div id="bvMulti" hidden>
-      <div class="bv-top"><span id="bvTitle"></span><span id="bvClock"></span></div>
-      <div class="bv-call" id="bvCall"></div>
-      <div class="countdown bv-count" id="bvCount" hidden></div>
-      <div id="bvHeat" hidden>
-        <div class="bv-cur" id="bvHCur">--.---</div>
-        <div class="bv-top"><span></span><span id="bvHTotal"></span></div>
-        <div class="bv-next" id="bvHNext"></div>
+      <div id="bvMulti" hidden>
+        <div class="bv-top"><span id="bvTitle"></span><span id="bvClock"></span></div>
+        <div class="bv-call" id="bvCall"></div>
+        <div class="countdown bv-count" id="bvCount" hidden></div>
+        <div id="bvHeat" hidden>
+          <div class="bv-cur" id="bvHCur">--.---</div>
+          <div class="bv-row">
+            <div><div class="sub">Total</div><div class="bv-mid" id="bvHTotal">–</div></div>
+            <div><div class="sub">Up next</div><div class="bv-mid" id="bvHNext">–</div></div>
+          </div>
+        </div>
+        <table class="bv-table"><tbody id="bvRows"></tbody></table>
       </div>
-      <table class="bv-table"><tbody id="bvRows"></tbody></table>
+      <div class="warn" id="bvWarn" hidden></div>
+      <div class="bv-exit">tap to close</div>
     </div>
-    <div class="warn" id="bvWarn" hidden></div>
-    <div class="bv-exit">tap to close</div>
   </div>
 </body>
 </html>

@@ -146,8 +146,10 @@ function raceFrame() {
   $('hnCur').textContent = cur;
   $('hnTotal').textContent = total;
   if (!$('bigView').hidden) {
+    const grew = cur.length !== $('bvHCur').textContent.length;
     $('bvHCur').textContent = cur;
-    $('bvHTotal').textContent = r.current.started ? 'Σ ' + total : '';
+    if (grew) fitBig();
+    $('bvHTotal').textContent = total;
   }
 }
 
@@ -240,7 +242,8 @@ function renderBigTable(r) {
     $('bvCount').hidden = $('countdown').hidden;
     $('bvCount').textContent = $('countdown').textContent;
     $('bvHeat').hidden = !hn;
-    if (hn) $('bvHNext').textContent = $('hnNext').hidden ? '' : $('hnNext').firstChild ? 'Up next: ' + $('hnNext').querySelector('b').textContent : '';
+    if (hn) $('bvHNext').textContent = r.next ? driverName(r.next) : '–';
+    $('bvRows').parentElement.hidden = hn;               // heats: the card has the standings, here the driver counts
     $('bvRows').innerHTML = r.heats ? r.rows.filter(x => x.started).map(x => {
       const full = x.finished && x.laps === S.race.laps;
       return `<tr class="${x.pos === 1 && full ? 'lead' : ''}">
@@ -251,6 +254,7 @@ function renderBigTable(r) {
       <td>${x.pos === 1 ? '' : x.gapLaps ? '+' + x.gapLaps + 'L' : '+' + fmt(x.gapMs)}</td></tr>`).join('');
   } else {
     $('bvHeat').hidden = true;
+    $('bvRows').parentElement.hidden = false;
     $('bvCall').textContent = '';
     $('bvTitle').textContent = 'Training';
     $('bvClock').textContent = '';
@@ -263,6 +267,7 @@ function renderBigTable(r) {
         <td>${last ? fmt(last) : '–'}</td></tr>`;
     }).join('');
   }
+  fitBig();
 }
 
 function renderRaceKind() {
@@ -323,6 +328,8 @@ function raceViewInit() {
   setInterval(raceTick, 250);
   $('bigOpen').onclick = () => {
     $('bigView').hidden = false;
+    if (racing() || multi()) renderBigTable(renderRace());
+    fitBig();
     const el = document.documentElement;                // real fullscreen where the browser allows it
     if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
   };

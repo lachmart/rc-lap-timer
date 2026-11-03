@@ -128,6 +128,19 @@ function flash(isBest) {
 
 const racing = () => S && S.race.state !== 'off';
 
+// ---------------------------------------------------------------- big view
+// Everything in it is sized in em: start from 7 % of the shorter screen side and shrink until it all
+// fits (phone upright or sideways, laptop, TV). Runs when its content changes, not every frame.
+function fitBig() {
+  const v = $('bigView');
+  if (v.hidden) return;
+  let f = Math.min(innerWidth, innerHeight) * 0.07;
+  v.style.fontSize = f + 'px';
+  const fits = () => v.scrollHeight <= v.clientHeight && v.scrollWidth <= v.clientWidth;
+  for (let i = 0; i < 14 && !fits(); i++) { f *= 0.9; v.style.fontSize = f + 'px'; }
+}
+addEventListener('resize', fitBig);
+
 // ---------------------------------------------------------------- tabs
 // Training (default), Race (setup or the running race) and Settings. The laps list follows the
 // race onto its tab, so laps can be fixed there too.
@@ -319,6 +332,7 @@ function renderSingle() {
     : valid.length ? 'ø ' + fmt(valid.reduce((a, l) => a + l[L.MS], 0) / valid.length) : ' ';
   $('undo').disabled = !(car0 && car0.canUndo);
   for (const id of ['last', 'lastd', 'best', 'bestd']) $('bv' + id[0].toUpperCase() + id.slice(1)).textContent = $(id).textContent;
+  fitBig();
 }
 
 function onState(s) {
@@ -449,7 +463,8 @@ function tick() {
       $('bvSingle').hidden = bigMulti;
       $('bvMulti').hidden = !bigMulti;
       if (!bigMulti) {
-        $('bvCur').textContent = time;
+        if (time.length !== $('bvCur').textContent.length) { $('bvCur').textContent = time; fitBig(); }   // 9.999 → 10.000
+        else $('bvCur').textContent = time;
         $('bvLap').textContent = lap;
         $('bvDriver').textContent = who;
       }
