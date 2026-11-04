@@ -3,9 +3,11 @@
 Fusion: Utilities → Add-Ins → Scripts and Add-Ins → "+" (My Scripts) → pick this folder → Run.
 It opens a new design with five components, laid out side by side for printing:
 
-  Timer box          frame with the ESP32 pin plate, USB slot, LDR tube (no top, no bottom)
-  Timer top cover    snaps into the frame from above
-  Timer bottom cover snaps in from below (open it to plug wires onto the pins under the plate)
+  Timer box          frame whose bottom is the ESP32 pin plate (prints plate-down on the bed), USB slot,
+                     LDR tube inside behind a small opening in the front wall
+  Timer top cover    pushes into the frame from above
+  Timer bottom tray  the room under the pin plate for the Dupont plugs and wires; the frame sits in it
+                     on a ledge (lift the frame out to plug wires onto the pins)
   Laser post         2×AA holder pocket, switch hole, laser bore with two aiming screws
   Laser lid          covers the battery pocket
 
@@ -44,12 +46,12 @@ P = {
     'ldr_zone': 22.0,      # inner length past the board for the LDR, resistor, wires
     'side_gap': 3.0,       # room beside the board
 
-    # LDR tube (light comes in only along the beam)
-    'tube_len': 25.0,      # sticks out of the front wall
-    'tube_d': 12.0,
+    # LDR tube inside the box, behind an opening in the front wall (light comes in only along the beam)
+    'tube_len': 22.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
+    'tube_d': 11.0,
     'ldr_hole': 5.4,       # LDR 5 mm (GL5528): snug
-    'funnel_d': 10.0,      # entrance of the funnel
-    'funnel_len': 4.0,
+    'funnel_d': 7.6,       # opening in the outside of the front wall (keeps a rim above the frame's bottom edge)
+    'funnel_len': 4.0,     # cone from the opening down to the LDR hole
 
     # covers
     'cover_t': 2.0,
@@ -184,23 +186,37 @@ def cover(root, name, ox, oy, L, W, inner_x0, inner_y0, inner_x1, inner_y1):
     return c
 
 
+def tray(root, name, oy, L, W, plate_z):
+    """The bottom: a tray as tall as the room under the pin plate. The frame (L×W) stands on a ledge inside
+    it, and a rim lip_h high goes around the frame's bottom edge."""
+    p = P
+    w, fit, lip_h = p['wall'], p['fit'], p['lip_h']
+    t = w + fit
+    c = new_component(root, name)
+    b = block(c, -t, oy - t, 0, L + t, oy + W + t, plate_z + lip_h)
+    block(c, -fit, oy - fit, plate_z, L + fit, oy + W + fit, plate_z + lip_h, CUT, b)   # socket for the frame
+    block(c, w, oy + w, p['cover_t'], L - w, oy + W - w, plate_z, CUT, b)               # room for the wires
+    b.name = name
+    return c
+
+
 def timer(root):
     p = P
     w = p['wall']
     in_l = p['usb_gap'] + p['pcb_l'] + p['ldr_zone']
     in_w = p['pcb_w'] + 2 * p['side_gap']
     L, W = in_l + 2 * w, in_w + 2 * w
-    z0 = p['cover_t']                                   # the bottom cover is under the frame
-    plate_z = z0 + p['under']
+    plate_z = p['cover_t'] + p['under']                 # the tray below holds the wires
     plate_top = plate_z + p['plate_t']
     pcb_z = plate_top + p['spacer']
     top = pcb_z + p['pcb_t'] + p['parts_h'] + p['head']
 
+    # the frame starts at the pin plate, so it prints plate-down on the bed
     c = new_component(root, 'Timer box')
-    b = block(c, 0, 0, z0, L, W, top)
-    block(c, w, w, z0, L - w, W - w, top, CUT, b)       # hollow frame, open top and bottom
+    b = block(c, 0, 0, plate_z, L, W, top)
+    block(c, w, w, plate_z, L - w, W - w, top, CUT, b)  # hollow frame
 
-    # pin plate under the board, across the full width; the LDR zone stays open top to bottom
+    # pin plate under the board, across the full width; the LDR zone stays open to the tray below
     board_x0 = w + p['usb_gap']
     plate_x1 = board_x0 + p['pcb_l'] + 1.5
     block(c, w, w, plate_z, plate_x1, W - w, plate_top, JOIN, b)
@@ -217,17 +233,17 @@ def timer(root):
     usb_z = pcb_z + p['pcb_t'] + 1.5
     block(c, 0, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w, cy + p['usb_w'] / 2, top, CUT, b)
 
-    # LDR tube on the front wall (y = 0), pointing across the track, centred on the beam
+    # LDR tube inside, from the front wall (y = 0) inwards, centred on the beam; the light comes in through
+    # a small funnel-shaped opening in the wall
     tube_x = board_x0 + p['pcb_l'] + p['ldr_zone'] / 2
     bz = p['beam_h']
-    rod(c, 'y', 0, -p['tube_len'], tube_x, bz, p['tube_d'], JOIN, b)
-    rod(c, 'y', -p['tube_len'], w, tube_x, bz, p['ldr_hole'], CUT, b)
-    # funnel at the entrance: a cone from funnel_d down to the LDR hole
+    rod(c, 'y', w, w + p['tube_len'], tube_x, bz, p['tube_d'], JOIN, b)
+    rod(c, 'y', -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], CUT, b)
     lo = c.features.loftFeatures
-    s1 = sketch_at(c, 'y', -p['tube_len'])
-    s1.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s1, pt('y', -p['tube_len'], tube_x, bz)), cm(p['funnel_d'] / 2))
-    s2 = sketch_at(c, 'y', -p['tube_len'] + p['funnel_len'])
-    s2.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s2, pt('y', -p['tube_len'] + p['funnel_len'], tube_x, bz)),
+    s1 = sketch_at(c, 'y', 0)
+    s1.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s1, pt('y', 0, tube_x, bz)), cm(p['funnel_d'] / 2))
+    s2 = sketch_at(c, 'y', p['funnel_len'])
+    s2.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s2, pt('y', p['funnel_len'], tube_x, bz)),
                                                     cm(p['ldr_hole'] / 2))
     li = lo.createInput(CUT)
     li.loftSections.add(s1.profiles.item(0))
@@ -235,11 +251,13 @@ def timer(root):
     li.isSolid = True
     li.participantBodies = [b]
     lo.add(li)
+    # trim anything below the pin plate (the bottom of the tube) so the frame stands flat on the bed
+    block(c, -5, -5, plate_z - 30, L + 5, W + 5, plate_z, CUT, b)
     b.name = 'Timer box'
 
-    # covers, beside the box for printing
+    # top cover and bottom tray, beside the box for printing
     cover(root, 'Timer top cover', 0, W + 15, L, W, w, w, L - w, W - w)
-    cover(root, 'Timer bottom cover', 0, 2 * W + 30, L, W, w, w, L - w, W - w)
+    tray(root, 'Timer bottom tray', 2 * W + 35, L, W, plate_z)
     return L
 
 
