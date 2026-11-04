@@ -8,8 +8,9 @@ five parts, each already lying the way it prints (flat side down, no supports ne
                behind the beam opening (push it in from inside); USB slot
   Timer lid    flat, a lip all the way round the open part, four short tubes underneath that hold the
                board down around its holes (nothing flexes, nothing to snap); a groove on top marks the beam
-  Laser post   the laser sits in a solid block at one end (push it in from the front, its wires go through
-               a channel into the pocket), two M3 aiming screws (top, end); 2×AAA holder, the switch over its end
+  Laser post   the laser sits in a block at one end (push it in from the front, its wires go through
+               a channel into the pocket), room under it open to the pocket, two M3 aiming screws (top,
+               end); 2×AAA holder, the switch over its end
   Laser lid    like the timer's, with the switch hole and a hole to reach the top aiming screw
   Sleeve       for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
@@ -21,8 +22,8 @@ Both parts have the same footprint and height (the larger of what each needs), s
 the sleeve fits both. Standing face to face (one turned half way) the laser lines up with the LDR, and the
 lid grooves line up. The height is set by the beam (beam_h + the bore + 1 mm): lowering beam_h lowers both.
 
-How it prints well: every part has a flat face on the bed; the laser and LDR blocks stand on the floor (no
-spans); holes across a part are teardrops with a small flat top (no supports, no droop, little height);
+How it prints well: every part has a flat face on the bed; the LDR block stands on the floor (no span), the
+hollow under the laser is a 30 mm bridge across the post; holes across a part are teardrops with a small flat top (no supports, no droop, little height);
 walls 2.4 mm everywhere, never thinned. M3 screws self-tap into 2.5 mm holes.
 
 All sizes are in P below, in mm. Change the numbers and run again (it makes a new design each time).
@@ -63,6 +64,7 @@ P = {
     'laser_clear': 0.3,    # bore = laser_d + this: a snug fit (printed holes come out a bit small), the screws aim it
     'laser_len': 10.0,     # laser module length; the aiming screws press on its middle
     'block_l': 11.0,       # the solid block that holds the laser, along the post. Its middle is the beam
+    'laser_roof': 1.3,     # under the laser block a hollow open to the pocket; its roof below the bore
                            # line; the timer's LDR is the same distance from its far end
 
     # shell (both parts share the footprint and the height)
@@ -398,6 +400,8 @@ def laser(root, ox, L, W, H):
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
     rblock(c, ox + w + bl, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
+    # a hollow under the laser block, open to the pocket (end wall 1 mm thicker), roof laser_roof under the bore
+    block(c, ox + w + 1, w, fl, ox + w + bl + 0.1, W - w, bz - bore_r() - p['laser_roof'], CUT, b)
     # the laser goes in from the front (beam side); the bore stops at the back wall, which stays closed
     bore_y(c, -1, W - w, ox + lx, bz, 2 * bore_r(), b)
     # its wires: from the back of the bore through a channel into the pocket
