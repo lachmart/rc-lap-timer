@@ -8,7 +8,8 @@ six parts, each already lying the way it prints (flat side down, no supports nee
                   two M3×6 screws hold the other end
   Timer lid       flat lid with a lip; a groove on top marks the beam line
   Laser post      2×AA holder on the floor, the laser in a bridge across its end at beam height (the holder
-                  slides in under it), two M3 aiming screws (top, end); room for the switch at the other end
+                  slides in under it), two M3 aiming screws (top, end); the laser goes in from the front, its
+                  wires go down a slot into the pocket; room for the switch at the other end
   Laser lid       flat lid with the switch hole, a hole to reach the top aiming screw, the beam groove
   Sleeve          for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
@@ -58,6 +59,7 @@ P = {
     'switch_zone': 22.0,   # inner length beside the holder for the switch body
     'laser_d': 6.0,        # laser module diameter
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
+    'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
     'bridge_l': 10.0,      # the bridge across the holder's end that holds the laser
     'bridge_skin': 0.6,    # bridge material under the laser bore
     'laser_floor': 1.6,    # thinner floor in the laser post, so the holder fits under the bridge
@@ -396,14 +398,18 @@ def laser(root, ox, L, W, H):
     rblock(c, ox + w, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
     # the bridge: from wall to wall across the holder's end, its top flush with the post's top
     block(c, ox + bx0, w - 0.1, bridge_bottom, ox + L - w + 0.1, W - w + 0.1, H, JOIN, b)
-    bore_y(c, -1, W + 1, ox + lx, bz, 2 * bore_r(), b)
-    # aiming screws: one from the top (up/down), one through the end wall (left/right)
-    rod(c, 'z', bz, H + 1, ox + lx, cy, p['tap_d'], CUT, b)
-    rod(c, 'x', ox + lx, ox + L + 1, cy, bz, p['tap_d'], CUT, b)
+    # the laser goes in from the front (beam side); the bore stops at the back wall, which stays closed
+    bore_y(c, -1, W - w, ox + lx, bz, 2 * bore_r(), b)
+    # the laser's wires: back along the bore, then down a slot through the bridge into the pocket
+    block(c, ox + lx - 1.5, W - w - 6, bridge_bottom - 0.1, ox + lx + 1.5, W - w, bz, CUT, b)
+    # aiming screws over the middle of the laser: one from the top (up/down), one through the end wall
+    sy = w + p['laser_len'] / 2
+    rod(c, 'z', bz, H + 1, ox + lx, sy, p['tap_d'], CUT, b)
+    rod(c, 'x', ox + lx, ox + L + 1, sy, bz, p['tap_d'], CUT, b)
     b.name = 'Laser post'
 
     lid(root, 'Laser lid', ox, W + 10, L, W, (w, w, bx0, W - w, r_in),
-        holes=[(w + p['fit'] + p['lip_t'] + 0.2 + p['switch_d'] / 2, cy, p['switch_d']), (lx, cy, p['clear_d'] + 0.6)],
+        holes=[(w + p['fit'] + p['lip_t'] + 0.2 + p['switch_d'] / 2, cy, p['switch_d']), (lx, w + p['laser_len'] / 2, p['clear_d'] + 0.6)],
         groove_x=lx)
 
 
