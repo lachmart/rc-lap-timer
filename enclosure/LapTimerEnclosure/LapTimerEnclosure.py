@@ -40,11 +40,11 @@ P = {
     'beam_h': 22.0,        # beam above the ground (Losi Micro-B 1:24: hits the chassis, not only the wheels)
 
     # ESP32 DevKit, 30 pins. Holes measured on Martin's board (the DOIT drawing has 47.4 × 23.8)
-    'pcb_l': 51.8,         # board length, USB end to antenna end (edges aren't cut precisely)
+    'pcb_l': 51.5,         # board length, USB end to antenna end (edges aren't cut precisely)
     'pcb_w': 28.2,         # board width
     'hole_dx': 46.6,       # mounting holes: centre to centre along the board
     'hole_dy': 23.3,       #                 centre to centre across the board
-    'hole_x0': 2.6,        # USB edge to the nearest holes' centres: the holes centred on the board
+    'hole_x0': 2.45,       # USB edge to the nearest holes' centres: the holes centred on the board
     'hole_d': 2.8,         # mounting hole diameter; the pegs are 0.4 mm thinner
     'standoff_d': 5.0,
     'hook_w': 8.0,         # snap hook over the board's antenna end: width,
