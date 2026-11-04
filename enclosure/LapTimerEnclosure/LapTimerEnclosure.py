@@ -9,7 +9,7 @@ five parts, each already lying the way it prints (flat side down, no supports ne
   Timer lid    flat, a lip all the way round the open part, four short tubes underneath that hold the
                board down around its holes (nothing flexes, nothing to snap); a groove on top marks the beam
   Laser post   the laser sits in a solid block at one end (push it in from the front, its wires go through
-               a channel into the pocket), two M3 aiming screws (top, end); 2×AA holder; switch zone
+               a channel into the pocket), two M3 aiming screws (top, end); 2×AAA holder; switch zone
   Laser lid    like the timer's, with the switch hole and a hole to reach the top aiming screw
   Sleeve       for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
@@ -53,12 +53,12 @@ P = {
     'usb_gap': 0.6,        # board's USB edge to the inner wall
 
     # laser post (MEASURE)
-    'holder_l': 58.0,      # 2×AA holder, outside
-    'holder_w': 32.0,
-    'holder_h': 16.0,
-    'switch_d': 20.0,      # round rocker switch, panel hole (in the laser lid)
-    'switch_depth': 16.0,  # switch body below the lid
-    'switch_zone': 22.0,   # inner length beside the holder for the switch body
+    'holder_l': 52.0,      # 2×AAA holder, outside (MEASURE yours)
+    'holder_w': 25.0,
+    'holder_h': 13.0,
+    'switch_d': 15.2,      # round rocker switch, panel hole (in the laser lid)
+    'switch_depth': 17.0,  # switch below the lid's top face
+    'switch_zone': 18.0,   # inner length beside the holder for the switch body
     'laser_d': 6.0,        # laser module diameter
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
     'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
