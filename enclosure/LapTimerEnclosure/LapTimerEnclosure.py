@@ -3,11 +3,11 @@
 Fusion: Utilities → Add-Ins → Scripts and Add-Ins → "+" (My Scripts) → pick this folder → Run.
 It opens a new design with five components, laid out side by side for printing:
 
-  Timer box          frame whose bottom is the ESP32 pin plate (prints plate-down on the bed), USB slot,
-                     LDR tube inside behind a small opening in the front wall
-  Timer top cover    pushes into the frame from above
-  Timer bottom tray  the room under the pin plate for the Dupont plugs and wires; the frame sits in it
-                     on a ledge (lift the frame out to plug wires onto the pins)
+  Timer box          the upper part: its floor is the ESP32 pin plate (prints plate-down on the bed), USB slot
+  Timer top cover    pushes into the box from above
+  Timer base         the lower part: the LDR in a tube behind the beam opening, and room for the resistor,
+                     the Dupont plugs on the pins and the wires. Same outline as the box; they join with a
+                     stepped edge well above the beam (lift the box off to reach the wiring).
   Laser post         2×AA holder pocket, switch hole, laser bore with two aiming screws
   Laser lid          covers the battery pocket
 
@@ -39,18 +39,18 @@ P = {
     'usb_gap': 0.6,        # board's USB edge to the inner wall
 
     # timer box
-    'wall': 2.0,
+    'wall': 2.4,           # thick enough to split in half for the stepped joint
     'plate_t': 1.6,        # pin plate: thin, so the pins stick out below for Dupont jumpers
-    'under': 16.0,         # room under the plate for Dupont plugs and wires
+    'under': 28.0,         # height of the base inside: Dupont plugs + wires; the joint must clear the beam
     'head': 2.0,           # room above the tallest part
-    'ldr_zone': 22.0,      # inner length past the board for the LDR, resistor, wires
+    'ldr_zone': 22.0,      # inner length past the board's pins, in the base: the LDR tube, the resistor
     'side_gap': 3.0,       # room beside the board
 
     # LDR tube inside the box, behind an opening in the front wall (light comes in only along the beam)
     'tube_len': 22.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
     'tube_d': 11.0,
     'ldr_hole': 5.4,       # LDR 5 mm (GL5528): snug
-    'funnel_d': 7.6,       # opening in the outside of the front wall (keeps a rim above the frame's bottom edge)
+    'funnel_d': 9.0,       # opening in the outside of the front wall
     'funnel_len': 4.0,     # cone from the opening down to the LDR hole
 
     # covers
@@ -186,78 +186,71 @@ def cover(root, name, ox, oy, L, W, inner_x0, inner_y0, inner_x1, inner_y1):
     return c
 
 
-def tray(root, name, oy, L, W, plate_z):
-    """The bottom: a tray as tall as the room under the pin plate. The frame (L×W) stands on a ledge inside
-    it, and a rim lip_h high goes around the frame's bottom edge."""
-    p = P
-    w, fit, lip_h = p['wall'], p['fit'], p['lip_h']
-    t = w + fit
-    c = new_component(root, name)
-    b = block(c, -t, oy - t, 0, L + t, oy + W + t, plate_z + lip_h)
-    block(c, -fit, oy - fit, plate_z, L + fit, oy + W + fit, plate_z + lip_h, CUT, b)   # socket for the frame
-    block(c, w, oy + w, p['cover_t'], L - w, oy + W - w, plate_z, CUT, b)               # room for the wires
-    b.name = name
-    return c
-
-
 def timer(root):
     p = P
-    w = p['wall']
+    w, fit, lip_h = p['wall'], p['fit'], p['lip_h']
+    half = w / 2
     in_l = p['usb_gap'] + p['pcb_l'] + p['ldr_zone']
     in_w = p['pcb_w'] + 2 * p['side_gap']
     L, W = in_l + 2 * w, in_w + 2 * w
-    plate_z = p['cover_t'] + p['under']                 # the tray below holds the wires
-    plate_top = plate_z + p['plate_t']
+    joint = p['cover_t'] + p['under']                   # base below, box above
+    bz = p['beam_h']
+    if joint < bz + p['funnel_d'] / 2 + 3:
+        raise ValueError('under is too small: the joint would cut through the beam opening')
+    plate_top = joint + p['plate_t']
     pcb_z = plate_top + p['spacer']
     top = pcb_z + p['pcb_t'] + p['parts_h'] + p['head']
-
-    # the frame starts at the pin plate, so it prints plate-down on the bed
-    c = new_component(root, 'Timer box')
-    b = block(c, 0, 0, plate_z, L, W, top)
-    block(c, w, w, plate_z, L - w, W - w, top, CUT, b)  # hollow frame
-
-    # pin plate under the board, across the full width; the LDR zone stays open to the tray below
-    board_x0 = w + p['usb_gap']
-    plate_x1 = board_x0 + p['pcb_l'] + 1.5
-    block(c, w, w, plate_z, plate_x1, W - w, plate_top, JOIN, b)
     cy = W / 2
-    sk = sketch_at(c, 'z', plate_z)
+    board_x0 = w + p['usb_gap']
+
+    # ---- the box (upper part): pin plate as its floor, so it prints plate-down
+    c = new_component(root, 'Timer box')
+    b = block(c, 0, 0, joint, L, W, top)
+    block(c, w, w, plate_top, L - w, W - w, top, CUT, b)            # hollow above the plate
+    # stepped joint: the outer half of the wall is cut back at the bottom, the base's lip fits in there
+    block(c, -1, -1, joint, L + 1, W + 1, joint + lip_h + fit, CUT, b)
+    block(c, half + fit, half + fit, joint, L - half - fit, W - half - fit, joint + lip_h + fit, JOIN, b)
+    block(c, w, w, joint + p['plate_t'], L - w, W - w, joint + lip_h + fit, CUT, b)
+    sk = sketch_at(c, 'z', joint)
     for row in (-1, 1):
         for i in range(int(p['pins'])):
             x = board_x0 + p['pin_x0'] + i * p['pitch']
             y = cy + row * p['row_gap'] / 2
-            sk.sketchCurves.sketchCircles.addByCenterRadius(to_sk(sk, pt('z', plate_z, x, y)), cm(p['pin_hole'] / 2))
+            sk.sketchCurves.sketchCircles.addByCenterRadius(to_sk(sk, pt('z', joint, x, y)), cm(p['pin_hole'] / 2))
     extrude(c, sk, 'z', p['plate_t'], CUT, b)
-
     # USB: a slot open to the top of the end wall, so the board goes in from above with the cable on
     usb_z = pcb_z + p['pcb_t'] + 1.5
-    block(c, 0, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w, cy + p['usb_w'] / 2, top, CUT, b)
+    block(c, -1, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w + 1, cy + p['usb_w'] / 2, top + 1, CUT, b)
+    b.name = 'Timer box'
 
-    # LDR tube inside, from the front wall (y = 0) inwards, centred on the beam; the light comes in through
-    # a small funnel-shaped opening in the wall
+    # ---- the base (lower part): floor, walls up to the joint, the outer half of the wall goes on as a lip
+    oy = 2 * W + 30
+    cb = new_component(root, 'Timer base')
+    base = block(cb, 0, oy, 0, L, oy + W, joint + lip_h)
+    block(cb, half, oy + half, joint, L - half, oy + W - half, joint + lip_h, CUT, base)
+    block(cb, w, oy + w, p['cover_t'], L - w, oy + W - w, joint, CUT, base)
+    # LDR tube: a block standing on the floor (prints without supports) with the bore along the beam,
+    # from the inside of the front wall inwards; the light comes in through a funnel-shaped opening
     tube_x = board_x0 + p['pcb_l'] + p['ldr_zone'] / 2
-    bz = p['beam_h']
-    rod(c, 'y', w, w + p['tube_len'], tube_x, bz, p['tube_d'], JOIN, b)
-    rod(c, 'y', -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], CUT, b)
-    lo = c.features.loftFeatures
-    s1 = sketch_at(c, 'y', 0)
-    s1.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s1, pt('y', 0, tube_x, bz)), cm(p['funnel_d'] / 2))
-    s2 = sketch_at(c, 'y', p['funnel_len'])
-    s2.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s2, pt('y', p['funnel_len'], tube_x, bz)),
+    r = p['tube_d'] / 2
+    block(cb, tube_x - r, oy + w, p['cover_t'], tube_x + r, oy + w + p['tube_len'], bz + r, JOIN, base)
+    rod(cb, 'y', oy - 1, oy + w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], CUT, base)
+    lo = cb.features.loftFeatures
+    s1 = sketch_at(cb, 'y', oy)
+    s1.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s1, pt('y', oy, tube_x, bz)), cm(p['funnel_d'] / 2))
+    s2 = sketch_at(cb, 'y', oy + p['funnel_len'])
+    s2.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s2, pt('y', oy + p['funnel_len'], tube_x, bz)),
                                                     cm(p['ldr_hole'] / 2))
     li = lo.createInput(CUT)
     li.loftSections.add(s1.profiles.item(0))
     li.loftSections.add(s2.profiles.item(0))
     li.isSolid = True
-    li.participantBodies = [b]
+    li.participantBodies = [base]
     lo.add(li)
-    # trim anything below the pin plate (the bottom of the tube) so the frame stands flat on the bed
-    block(c, -5, -5, plate_z - 30, L + 5, W + 5, plate_z, CUT, b)
-    b.name = 'Timer box'
+    base.name = 'Timer base'
 
-    # top cover and bottom tray, beside the box for printing
+    # top cover, beside the box for printing
     cover(root, 'Timer top cover', 0, W + 15, L, W, w, w, L - w, W - w)
-    tray(root, 'Timer bottom tray', 2 * W + 35, L, W, plate_z)
     return L
 
 
