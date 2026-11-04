@@ -61,7 +61,7 @@ P = {
     'switch_zone': 0.0,    # extra inner length for the switch body; 0 = it sits over the holder's end
     'laser_d': 6.0,        # laser module diameter
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
-    'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
+    'laser_len': 10.0,     # laser module length; the aiming screws press on its middle
     'block_l': 11.0,       # the solid block that holds the laser, along the post. Its middle is the beam
                            # line; the timer's LDR is the same distance from its far end
 
