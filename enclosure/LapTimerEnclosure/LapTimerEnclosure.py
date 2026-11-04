@@ -3,16 +3,18 @@
 Fusion: Utilities → Add-Ins → Scripts and Add-Ins → LapTimerEnclosure → Run. It opens a new design with
 five parts, each already lying the way it prints (flat side down, no supports needed):
 
-  Timer base   the ESP32 clips onto two cross-ribs (pegs in its mounting holes, a snap hook over its antenna
-               end), pins down, room for the soldered wires; the LDR sits in a solid block in the corner
+  Timer base   the ESP32 sits on two cross-ribs (pegs through its mounting holes), pins down, room for
+               the soldered wires; the LDR sits in a solid block in the corner
                behind the beam opening (push it in from inside); USB slot
-  Timer lid    flat, a lip all the way round the open part; a groove on top marks the beam line
+  Timer lid    flat, a lip all the way round the open part, four short tubes underneath that hold the
+               board down around its holes (nothing flexes, nothing to snap); a groove on top marks the beam
   Laser post   the laser sits in a solid block at one end (push it in from the front, its wires go through
                a channel into the pocket), two M3 aiming screws (top, end); 2×AA holder; switch zone
   Laser lid    like the timer's, with the switch hole and a hole to reach the top aiming screw
   Sleeve       for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
-Assembly: timer – clip the board in, push the LDR in, solder 3V3/GND/D32 + the resistor, press the lid on.
+Assembly: timer – set the board on the pegs, push the LDR in, solder 3V3/GND/D32 + the resistor, press the
+lid on (it holds the board).
 Laser post – drop the holder in, push the laser in, wire the switch in the lid, press the lid on, aim.
 
 Both parts have the same footprint and height (the larger of what each needs), so they make a neat pair and
@@ -41,9 +43,8 @@ P = {
     'hole_dy': 23.3,       #                 centre to centre across the board
     'hole_x0': 2.45,       # USB edge to the nearest holes' centres: the holes centred on the board
     'hole_d': 2.8,         # mounting hole diameter; the pegs are 0.4 mm thinner
-    'hook_w': 8.0,         # snap hook over the board's antenna end: width,
-    'hook_t': 1.6,         #   arm thickness (springs back),
-    'hook_catch': 1.0,     #   how far it reaches over the board
+    'press_od': 4.8,       # tubes under the timer lid that hold the board down around its holes,
+    'press_pre': 0.1,      #   how much they press on it
     'pins_below': 8.5,     # header pins + their spacer below the board
     'pcb_t': 1.6,
     'parts_h': 4.5,        # tallest part on top of the board (USB socket, module, buttons)
@@ -275,10 +276,11 @@ def funnel_y(comp, y0, length, x, z, d0, d1, body):
     lo.add(li)
 
 
-def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
+def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None, pressers=()):
     """Flat lid L×W lying top-down (as it prints) with a lip that goes into `opening` (x0, y0, x1, y1, r) of
     the part below. holes: (x, y, d) through the lid, groove_x: the beam line, marked on top. x, y are in
-    the part's own coordinates; the lid is flipped over y, which is symmetric for everything here."""
+    the part's own coordinates; the lid is flipped over y, which is symmetric for everything here.
+    pressers: (x, y, length, od, id) tubes on the underside that hold something down."""
     p = P
     c = new_component(root, name)
     b = rblock(c, ox, oy, 0, ox + L, oy + W, p['lid_t'], p['corner_r'])
@@ -290,6 +292,9 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
            p['lid_t'] + p['lip_h'], max(r - f - t, 0.5), CUT, b)
     for x, y, d in holes:
         rod(c, 'z', -1, p['lid_t'] + p['lip_h'] + 1, ox + x, oy + W - y, d, CUT, b)
+    for x, y, length, od, idia in pressers:
+        rod(c, 'z', p['lid_t'] - 0.1, p['lid_t'] + length, ox + x, oy + W - y, od, JOIN, b)
+        rod(c, 'z', p['lid_t'] + 0.5, p['lid_t'] + length + 1, ox + x, oy + W - y, idia, CUT, b)
     if groove_x is not None:                            # on the bed face, which is the top once flipped
         g = p['groove_w'] / 2
         block(c, ox + groove_x - g, oy - 1, -1, ox + groove_x + g, oy + W + 1, p['groove_d'], CUT, b)
@@ -341,8 +346,8 @@ def timer(root, L, W, H):
     b = rblock(c, 0, 0, 0, L, W, H, R)
     rblock(c, w, w, fl, L - w, W - w, H + 1, r_in, CUT, b)
 
-    # two solid cross-ribs under the board's ends, with pegs into its mounting holes; the pins point down
-    # between them. The rib at the antenna end has a gap for the wires.
+    # two solid cross-ribs under the board's ends, with pegs into its mounting holes (the lid holds the board
+    # down); the pins point down between them. The rib at the antenna end has a gap for the wires.
     rt = p['rib_t'] / 2
     hx = (board_x0 + p['hole_x0'], board_x0 + p['hole_x0'] + p['hole_dx'])
     gy = p['wire_gap'] / 2
@@ -352,18 +357,6 @@ def timer(root, L, W, H):
     for x in hx:
         for y in (cy - p['hole_dy'] / 2, cy + p['hole_dy'] / 2):
             rod(c, 'z', pcb_z - 0.1, pcb_z + p['pcb_t'] + 0.8, x, y, p['hole_d'] - 0.4, JOIN, b)
-    # snap hook over the board's antenna end: a springy arm from the floor, a 45° lead-in on top, a catch
-    # 1 mm over the board's top edge (its underside is the only overhang, 1 mm)
-    a, t, k = board_x1 + 0.3, p['hook_t'], p['hook_catch']   # 0.3: board edges aren't cut precisely
-    zc = pcb_z + p['pcb_t'] + 0.15                      # the catch, just above the board
-    zt = zc + 0.8 + k                                   # the hook's top
-    hy = p['hook_w'] / 2
-    sk = sketch_at(c, 'y', cy - hy)
-    poly = [(a, fl - 0.1), (a + t, fl - 0.1), (a + t, zt), (a, zt), (a - k, zt - k), (a - k, zc), (a, zc)]
-    for i in range(len(poly)):
-        (x0, z0), (x1, z1) = poly[i], poly[(i + 1) % len(poly)]
-        sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(sk, pt('y', cy - hy, x0, z0)), to_sk(sk, pt('y', cy - hy, x1, z1)))
-    extrude(c, sk, 'y', p['hook_w'], JOIN, b)
 
     # LDR: a solid block in the corner (front wall, end wall, floor), the LDR goes in from inside, the beam
     # comes in through a funnel in the front wall
@@ -383,7 +376,12 @@ def timer(root, L, W, H):
     b.name = 'Timer base'
 
     # ---- lid: its lip goes all the way round the open part (the LDR block's top carries the lid there)
-    lid(root, 'Timer lid', 0, W + 10, L, W, (w, w, tube_x - tr - 0.3, W - w, r_in), groove_x=tube_x)
+    # a tube around each peg's tip presses on the board around its hole
+    plen = H - (pcb_z + p['pcb_t']) + p['press_pre']
+    press = [(x, y, plen, p['press_od'], p['hole_d'] + 0.4)
+             for x in hx for y in (cy - p['hole_dy'] / 2, cy + p['hole_dy'] / 2)]
+    lid(root, 'Timer lid', 0, W + 10, L, W, (w, w, tube_x - tr - 0.3, W - w, r_in), groove_x=tube_x,
+        pressers=press)
 
 
 def laser(root, ox, L, W, H):
