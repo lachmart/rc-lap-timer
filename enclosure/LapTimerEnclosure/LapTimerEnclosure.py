@@ -1,19 +1,23 @@
 """RC Lap Timer – 3D-printable enclosure, built by a Fusion 360 script.
 
 Fusion: Utilities → Add-Ins → Scripts and Add-Ins → LapTimerEnclosure → Run. It opens a new design with
-five parts, each already lying the way it prints (flat side down, no supports needed):
+six parts, each already lying the way it prints (flat side down, no supports needed):
 
-  Timer base      the tray: beam opening + LDR tube, posts for the pin plate, room for the wiring and Dupont
-                  plugs, USB slot in the end wall
-  Pin plate       a flat plate with the ESP32's two pin rows; screwed onto the posts (4× M3×6)
-  Timer lid       flat lid with a lip, a groove on top marks the beam line
-  Laser post      2×AA holder pocket and room for the switch, the laser in a bore at beam height with two
-                  aiming screws (M3, top and side)
-  Laser lid       flat lid with the switch hole, a hole to reach the top aiming screw, beam groove
+  Timer base      beam opening + LDR tube, the pin plate's slot and posts, room for the wiring, USB slot
+  Pin plate       flat plate with the ESP32's pin rows: its tongue goes into the slot in the USB end wall,
+                  two M3×6 screws hold the other end
+  Timer lid       flat lid with a lip; a groove on top marks the beam line
+  Laser post      2×AA holder on the floor, the laser in a tower at beam height with two M3 aiming screws
+  Laser lid       flat lid with the switch (hangs over the battery holder), a hole to reach the top aiming
+                  screw, the beam groove
+  Sleeve          for transport: put the two parts bottom to bottom and slide the sleeve over the joint
+
+Both parts have the same footprint and height (the larger of what each needs), so they make a neat pair and
+the sleeve fits both.
 
 How it prints well: every part has a flat face on the bed; holes across a part (laser, LDR) are teardrops
-(pointed top, 45°) so they print without supports; the pin holes print vertical in their own flat plate; the
-switch hole is in a lid, printed flat; no thin walls (2.4 mm). Screws: M3 self-tapping into 2.5 mm holes.
+(pointed top, 45°); the pin holes print vertical in their own flat plate; the switch hole is in a lid, printed
+flat; walls 2.4 mm. Screws: M3 self-tapping into 2.5 mm holes.
 
 All sizes are in P below, in mm. Measure your parts with a caliper, change the numbers and run again (it
 makes a new design each time). The ones marked MEASURE matter most. Both parts stand on the ground; the
@@ -43,25 +47,37 @@ P = {
     'usb_h': 8.5,
     'usb_gap': 0.6,        # board's USB edge to the inner wall
 
-    # shell
+    # laser post (MEASURE)
+    'holder_l': 58.0,      # 2×AA holder, outside
+    'holder_w': 32.0,
+    'holder_h': 16.0,
+    'switch_d': 20.0,      # round rocker switch, panel hole (in the laser lid)
+    'switch_depth': 16.0,  # switch body below the lid; it hangs over the battery holder
+    'laser_d': 6.0,        # laser module diameter
+    'laser_clear': 1.0,    # bore = laser_d + this: room to aim with the two screws
+    'tower': 13.0,         # inner length past the holder for the laser block
+
+    # shell (both parts share the footprint and the height)
     'wall': 2.4,
     'floor': 2.4,
     'corner_r': 5.0,       # outside corner radius
-    'under': 22.0,         # floor to pin plate: Dupont plugs on the pins + wires
-    'head': 2.0,           # room above the tallest part on the board
-    'ldr_zone': 24.0,      # inner length past the pin plate: LDR tube, resistor
+    'head': 2.5,           # room above the tallest part on the board
+    'min_under': 15.0,     # at least this much room under the pin plate for wires (more if the laser post is taller)
 
     # pin plate
     'plate_t': 2.0,
-    'plate_w': 44.0,       # wider than the board: its screws sit beside the board, under the spacer height
+    'tab': 7.0,            # plate past the board's antenna end, for its two screws
+    'tongue_w': 16.0,      # tongue at the USB end, into a slot in the wall
+    'tongue_l': 1.6,
     'post_d': 7.0,
 
     # LDR (light comes in only along the beam)
-    'tube_len': 22.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
-    'tube_d': 11.0,
+    'ldr_zone': 13.0,      # inner length past the pin plate for the LDR tube
+    'tube_len': 20.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
+    'tube_d': 9.0,
     'ldr_hole': 5.4,       # LDR 5 mm (GL5528): snug
     'funnel_d': 9.0,       # opening in the outside of the front wall
-    'funnel_len': 4.0,     # cone from the opening down to the LDR hole
+    'funnel_len': 3.0,     # cone from the opening down to the LDR hole
 
     # lids
     'lid_t': 2.5,
@@ -71,21 +87,16 @@ P = {
     'groove_w': 1.2,       # beam groove on the lids
     'groove_d': 0.6,
 
+    # transport sleeve
+    'sleeve_h': 20.0,      # 10 mm over each part
+    'sleeve_t': 2.0,
+    'sleeve_fit': 0.25,    # per side: snug, slides on with a little force
+
     # screws
     'tap_d': 2.5,          # M3 cuts its own thread in this
     'clear_d': 3.4,        # M3 passes through this
-
-    # laser post (MEASURE)
-    'holder_l': 58.0,      # 2×AA holder, outside
-    'holder_w': 32.0,
-    'holder_h': 16.0,
-    'switch_d': 20.0,      # round rocker switch, panel hole (in the laser lid)
-    'switch_room': 24.0,   # room for the switch body beside the holder
-    'laser_d': 6.0,        # laser module diameter
-    'laser_clear': 1.0,    # bore = laser_d + this: room to aim with the two screws
-    'tower': 16.0,         # length of the block that holds the laser
-    'post_h': 30.0,
 }
+
 
 app = None
 ui = None
@@ -269,107 +280,112 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
     return c
 
 
-def timer(root):
+def footprint():
+    """Shared outer size L×W×H of both parts: each fits what it needs, the larger wins."""
+    p = P
+    w = p['wall']
+    timer_l = p['usb_gap'] + p['pcb_l'] + p['tab'] + p['ldr_zone']
+    laser_l = p['holder_l'] + 1.0 + p['tower']
+    in_l = max(timer_l, laser_l)
+    in_w = max(p['pcb_w'] + 2.0, p['holder_w'] + 1.0)
+    stack = p['plate_t'] + p['spacer'] + p['pcb_t'] + p['parts_h'] + p['head']
+    timer_h = p['floor'] + p['min_under'] + stack
+    laser_h = p['floor'] + p['holder_h'] + 1.0 + p['switch_depth']
+    tube_h = p['beam_h'] + p['tube_d'] / 2 + p['lip_h'] + 1.0     # the lid's lip must clear the LDR tube
+    return in_l + 2 * w, in_w + 2 * w, max(timer_h, laser_h, tube_h)
+
+
+def timer(root, L, W, H):
     p = P
     w, fl, R = p['wall'], p['floor'], p['corner_r']
     r_in = R - w
-    # inside, along x: USB end wall | pin plate (board on it) | LDR zone
-    plate_x0 = w + 0.5
-    board_x0 = w + p['usb_gap']
-    plate_x1 = board_x0 + p['pcb_l'] + 1.0
-    in_l = (plate_x1 - w) + p['ldr_zone']
-    in_w = p['plate_w'] + 1.0
-    L, W = in_l + 2 * w, in_w + 2 * w
     cy = W / 2
-    plate_z = fl + p['under']
+    plate_z = H - (p['plate_t'] + p['spacer'] + p['pcb_t'] + p['parts_h'] + p['head'])
     pcb_z = plate_z + p['plate_t'] + p['spacer']
-    top = pcb_z + p['pcb_t'] + p['parts_h'] + p['head']
+    board_x0 = w + p['usb_gap']
+    plate_x0 = w + 0.3
+    plate_x1 = board_x0 + p['pcb_l'] + p['tab']
     bz = p['beam_h']
 
     # ---- base: rounded tray
     c = new_component(root, 'Timer base')
-    b = rblock(c, 0, 0, 0, L, W, top, R)
-    rblock(c, w, w, fl, L - w, W - w, top + 1, r_in, CUT, b)
-
-    # posts for the pin plate: screws beside the board (under the spacer height)
-    sx = (plate_x0 + 4, plate_x1 - 4)
-    sy = (cy - p['plate_w'] / 2 + 3.5, cy + p['plate_w'] / 2 - 3.5)
-    pr = p['post_d'] / 2
-    for x in sx:
-        for y in sy:
-            rod(c, 'z', fl - 0.1, plate_z, x, y, p['post_d'], JOIN, b)
-            # tie the post to the side wall (no thin gap between them, and stiffer)
-            y0, y1 = (w - 0.1, y) if y < cy else (y, W - w + 0.1)
-            block(c, x - pr, y0, fl - 0.1, x + pr, y1, plate_z, JOIN, b)
-            rod(c, 'z', plate_z - 8, plate_z + 1, x, y, p['tap_d'], CUT, b)
-
+    b = rblock(c, 0, 0, 0, L, W, H, R)
+    rblock(c, w, w, fl, L - w, W - w, H + 1, r_in, CUT, b)
+    # slot for the plate's tongue in the USB end wall (blind, a short 45°-free bridge)
+    tw = p['tongue_w'] / 2
+    block(c, w - p['tongue_l'] - 0.2, cy - tw - 0.2, plate_z - 0.15, w + 0.1, cy + tw + 0.2,
+          plate_z + p['plate_t'] + 0.15, CUT, b)
+    # two posts under the plate's tab, between the pin rows' ends
+    sx = plate_x1 - p['tab'] / 2
+    sy = (cy - 8.0, cy + 8.0)
+    for y in sy:
+        rod(c, 'z', fl - 0.1, plate_z, sx, y, p['post_d'], JOIN, b)
+        rod(c, 'z', plate_z - 8, plate_z + 1, sx, y, p['tap_d'], CUT, b)
     # LDR tube: a block standing on the floor, the teardrop bore along the beam, a funnel at the wall
-    tube_x = plate_x1 + p['ldr_zone'] / 2
+    tube_x = (plate_x1 + L - w) / 2
     tr = p['tube_d'] / 2
-    block(c, tube_x - tr, w - 0.1, fl - 0.1, tube_x + tr, w + p['tube_len'], bz + tr + 1, JOIN, b)
+    block(c, tube_x - tr, w - 0.1, fl - 0.1, tube_x + tr, w + p['tube_len'], bz + tr, JOIN, b)
     bore_y(c, -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], b)
     funnel_y(c, 0, p['funnel_len'], tube_x, bz, p['funnel_d'], p['ldr_hole'], b)
-
     # USB: a slot from the top edge of the end wall down to the plug
     usb_z = pcb_z + p['pcb_t'] + 1.5
-    block(c, -1, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w + 1, cy + p['usb_w'] / 2, top + 1, CUT, b)
+    block(c, -1, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w + 1, cy + p['usb_w'] / 2, H + 1, CUT, b)
     b.name = 'Timer base'
 
-    # ---- pin plate: flat, so the pin holes print vertical
-    oy = W + 12
+    # ---- pin plate: flat, so the pin holes print vertical; tongue at the USB end, two screws at the tab
+    oy = W + 10
+    py0 = w + 0.3                                       # the plate across the inside, 0.3 mm play each side
+    py1 = W - w - 0.3
     cp = new_component(root, 'Pin plate')
-    pb = rblock(cp, plate_x0, oy, 0, plate_x1, oy + p['plate_w'], p['plate_t'], 3.0)
+    pb = rblock(cp, plate_x0, oy + py0, 0, plate_x1, oy + py1, p['plate_t'], 1.5)
+    block(cp, w - p['tongue_l'], oy + cy - tw, 0, plate_x0 + 1, oy + cy + tw, p['plate_t'], JOIN, pb)
     sk = sketch_at(cp, 'z', 0)
     for row in (-1, 1):
         for i in range(int(p['pins'])):
             x = board_x0 + p['pin_x0'] + i * p['pitch']
-            y = oy + p['plate_w'] / 2 + row * p['row_gap'] / 2
-            sk.sketchCurves.sketchCircles.addByCenterRadius(to_sk(sk, pt('z', 0, x, y)), cm(p['pin_hole'] / 2))
-    for x in sx:
-        for y in sy:
             sk.sketchCurves.sketchCircles.addByCenterRadius(
-                to_sk(sk, pt('z', 0, x, oy + y - (cy - p['plate_w'] / 2))), cm(p['clear_d'] / 2))
+                to_sk(sk, pt('z', 0, x, oy + cy + row * p['row_gap'] / 2)), cm(p['pin_hole'] / 2))
+    for y in sy:
+        sk.sketchCurves.sketchCircles.addByCenterRadius(to_sk(sk, pt('z', 0, sx, oy + y)), cm(p['clear_d'] / 2))
     extrude(cp, sk, 'z', p['plate_t'], CUT, pb)
     pb.name = 'Pin plate'
 
     # ---- lid
-    lid(root, 'Timer lid', 0, oy + p['plate_w'] + 12, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x)
-    return L
+    lid(root, 'Timer lid', 0, oy + W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x)
 
 
-def laser(root, ox):
+def laser(root, ox, L, W, H):
     p = P
     w, fl, R = p['wall'], p['floor'], p['corner_r']
     r_in = R - w
-    pocket_l = p['switch_room'] + p['holder_l'] + 1.0
-    in_w = p['holder_w'] + 1.0
-    W = in_w + 2 * w
     cy = W / 2
-    px1 = w + pocket_l
-    L = px1 + p['tower']
-    H = p['post_h']
+    px1 = w + p['holder_l'] + 1.0                       # the pocket: battery holder, the switch above it
+    lx = (px1 + L) / 2                                  # the laser in the tower beyond
     bz = p['beam_h']
-    lx = px1 + p['tower'] / 2
 
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
-    rblock(c, ox + w, w, fl, ox + px1, W - w, H + 1, r_in, CUT, b)   # switch room + battery holder
-    # laser bore across the tower at beam height (teardrop), room to aim
+    rblock(c, ox + w, w, fl, ox + px1, W - w, H + 1, r_in, CUT, b)
     bore_y(c, -1, W + 1, ox + lx, bz, p['laser_d'] + p['laser_clear'], b)
     # aiming screws: one from the top (up/down), one from the end (left/right)
     rod(c, 'z', bz, H + 1, ox + lx, cy, p['tap_d'], CUT, b)
     rod(c, 'x', ox + lx, ox + L + 1, cy, bz, p['tap_d'], CUT, b)
     # wire channel from the bore into the pocket (a short 4 mm bridge prints fine)
-    sk = sketch_at(c, 'y', cy - 2)
-    pts = [(px1 - 1, bz - 2), (lx, bz - 2), (lx, bz + 2), (px1 - 1, bz + 2)]
-    for i in range(4):
-        (x0, z0), (x1, z1) = pts[i], pts[(i + 1) % 4]
-        sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(sk, pt('y', cy - 2, ox + x0, z0)), to_sk(sk, pt('y', cy - 2, ox + x1, z1)))
-    extrude(c, sk, 'y', 4, CUT, b)
+    block(c, ox + px1 - 1, cy - 2, bz - 2, ox + lx, cy + 2, bz + 2, CUT, b)
     b.name = 'Laser post'
 
-    lid(root, 'Laser lid', ox, W + 12, L, W, (w, w, px1, W - w, r_in),
-        holes=[(w + p['switch_room'] / 2, cy, p['switch_d']), (lx, cy, p['clear_d'] + 0.6)], groove_x=lx)
+    lid(root, 'Laser lid', ox, W + 10, L, W, (w, w, px1, W - w, r_in),
+        holes=[(w + p['holder_l'] / 2, cy, p['switch_d']), (lx, cy, p['clear_d'] + 0.6)], groove_x=lx)
+
+
+def sleeve(root, ox, oy, L, W):
+    """A ring that holds the two parts together bottom to bottom for transport."""
+    p = P
+    f, t, R = p['sleeve_fit'], p['sleeve_t'], p['corner_r']
+    c = new_component(root, 'Sleeve')
+    b = rblock(c, ox - f - t, oy - f - t, 0, ox + L + f + t, oy + W + f + t, p['sleeve_h'], R + f + t)
+    rblock(c, ox - f, oy - f, -1, ox + L + f, oy + W + f, p['sleeve_h'] + 1, R + f, CUT, b)
+    b.name = 'Sleeve'
 
 
 def run(context):
@@ -381,9 +397,12 @@ def run(context):
         design = adsk.fusion.Design.cast(app.activeProduct)
         design.designType = adsk.fusion.DesignTypes.ParametricDesignType
         root = design.rootComponent
-        L = timer(root)
-        laser(root, L + 20)
+        L, W, H = footprint()
+        timer(root, L, W, H)
+        laser(root, L + 15, L, W, H)
+        sleeve(root, 2 * L + 30, 0, L, W)
         app.activeViewport.fit()
+        ui.messageBox('Both parts: {:.0f} × {:.0f} × {:.0f} mm (+ {:.1f} mm lid)'.format(L, W, H, P['lid_t']))
     except Exception:
         if ui:
             ui.messageBox('Lap timer enclosure failed:\n{}'.format(traceback.format_exc()))
