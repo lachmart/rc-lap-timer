@@ -7,13 +7,15 @@ six parts, each already lying the way it prints (flat side down, no supports nee
   Pin plate       flat plate with the ESP32's pin rows: its tongue goes into the slot in the USB end wall,
                   two M3×6 screws hold the other end
   Timer lid       flat lid with a lip; a groove on top marks the beam line
-  Laser post      2×AA holder on the floor, the laser in a tower at beam height with two M3 aiming screws
-  Laser lid       flat lid with the switch (hangs over the battery holder), a hole to reach the top aiming
-                  screw, the beam groove
+  Laser post      2×AA holder on the floor, the laser in a bridge across its end at beam height (the holder
+                  slides in under it), two M3 aiming screws (top, end); room for the switch at the other end
+  Laser lid       flat lid with the switch hole, a hole to reach the top aiming screw, the beam groove
   Sleeve          for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
 Both parts have the same footprint and height (the larger of what each needs), so they make a neat pair and
-the sleeve fits both.
+the sleeve fits both. The height is set by the beam: the laser and the LDR tube sit at beam_h, just above
+the battery holder; the wires under the pin plate are soldered (3V3, GND, D32: Dupont plugs would need
+about 8 mm more height).
 
 How it prints well: every part has a flat face on the bed; holes across a part (laser, LDR) are teardrops
 (pointed top, 45°); the pin holes print vertical in their own flat plate; the switch hole is in a lid, printed
@@ -52,17 +54,20 @@ P = {
     'holder_w': 32.0,
     'holder_h': 16.0,
     'switch_d': 20.0,      # round rocker switch, panel hole (in the laser lid)
-    'switch_depth': 16.0,  # switch body below the lid; it hangs over the battery holder
+    'switch_depth': 16.0,  # switch body below the lid
+    'switch_zone': 22.0,   # inner length beside the holder for the switch body
     'laser_d': 6.0,        # laser module diameter
-    'laser_clear': 1.0,    # bore = laser_d + this: room to aim with the two screws
-    'tower': 13.0,         # inner length past the holder for the laser block
+    'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
+    'bridge_l': 10.0,      # the bridge across the holder's end that holds the laser
+    'bridge_skin': 0.6,    # bridge material under the laser bore
+    'laser_floor': 1.6,    # thinner floor in the laser post, so the holder fits under the bridge
 
     # shell (both parts share the footprint and the height)
     'wall': 2.4,
     'floor': 2.4,
     'corner_r': 5.0,       # outside corner radius
     'head': 2.5,           # room above the tallest part on the board
-    'min_under': 15.0,     # at least this much room under the pin plate for wires (more if the laser post is taller)
+    'min_under': 10.0,     # room under the pin plate for soldered wires and the resistor (more if taller anyway)
 
     # pin plate
     'plate_t': 2.0,
@@ -72,16 +77,16 @@ P = {
     'post_d': 7.0,
 
     # LDR (light comes in only along the beam)
-    'ldr_zone': 13.0,      # inner length past the pin plate for the LDR tube
+    'ldr_zone': 13.0,      # at least this inner length past the pin plate for the LDR tube
     'tube_len': 20.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
-    'tube_d': 9.0,
+    'tube_d': 8.0,
     'ldr_hole': 5.4,       # LDR 5 mm (GL5528): snug
-    'funnel_d': 9.0,       # opening in the outside of the front wall
+    'funnel_d': 7.0,       # opening in the outside of the front wall (its teardrop top stays below the lid)
     'funnel_len': 3.0,     # cone from the opening down to the LDR hole
 
     # lids
     'lid_t': 2.5,
-    'lip_h': 3.0,
+    'lip_h': 2.0,
     'lip_t': 1.6,
     'fit': 0.2,            # gap between a lip and the wall it goes into
     'groove_w': 1.2,       # beam groove on the lids
@@ -258,10 +263,11 @@ def funnel_y(comp, y0, length, x, z, d0, d1, body):
     lo.add(li)
 
 
-def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
+def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None, notch=None):
     """Flat lid L×W lying top-down (as it prints) with a lip that goes into `opening` (x0, y0, x1, y1, r) of
     the part below. holes: (x, y, d) through the lid, groove_x: the beam line, marked on top. x, y are in
-    the part's own coordinates; the lid is flipped over y, which is symmetric for everything here."""
+    the part's own coordinates; the lid is flipped over y, which is symmetric for everything here.
+    notch: (x0, x1) where the lip is left out along the front wall (y = 0), e.g. over the LDR tube."""
     p = P
     c = new_component(root, name)
     b = rblock(c, ox, oy, 0, ox + L, oy + W, p['lid_t'], p['corner_r'])
@@ -273,6 +279,9 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
            p['lid_t'] + p['lip_h'], max(r - f - t, 0.5), CUT, b)
     for x, y, d in holes:
         rod(c, 'z', -1, p['lid_t'] + p['lip_h'] + 1, ox + x, oy + W - y, d, CUT, b)
+    if notch is not None:                               # the front wall is at y = W once the lid is flipped
+        block(c, ox + notch[0], oy + W - y0 - f - t - 0.5, p['lid_t'], ox + notch[1], oy + W,
+              p['lid_t'] + p['lip_h'] + 1, CUT, b)
     if groove_x is not None:
         g = p['groove_w'] / 2
         block(c, ox + groove_x - g, oy - 1, -1, ox + groove_x + g, oy + W + 1, p['groove_d'], CUT, b)
@@ -280,19 +289,35 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None):
     return c
 
 
+def bore_r():
+    return (P['laser_d'] + P['laser_clear']) / 2
+
+
+def tube_top():
+    """Top of the LDR tube block: the teardrop bore's top + material over it."""
+    return P['beam_h'] + P['ldr_hole'] / 2 * math.sqrt(2) + 1.0
+
+
 def footprint():
     """Shared outer size L×W×H of both parts: each fits what it needs, the larger wins."""
     p = P
     w = p['wall']
     timer_l = p['usb_gap'] + p['pcb_l'] + p['tab'] + p['ldr_zone']
-    laser_l = p['holder_l'] + 1.0 + p['tower']
+    laser_l = p['switch_zone'] + p['holder_l'] + 1.0
     in_l = max(timer_l, laser_l)
     in_w = max(p['pcb_w'] + 2.0, p['holder_w'] + 1.0)
     stack = p['plate_t'] + p['spacer'] + p['pcb_t'] + p['parts_h'] + p['head']
     timer_h = p['floor'] + p['min_under'] + stack
-    laser_h = p['floor'] + p['holder_h'] + 1.0 + p['switch_depth']
-    tube_h = p['beam_h'] + p['tube_d'] / 2 + p['lip_h'] + 1.0     # the lid's lip must clear the LDR tube
-    return in_l + 2 * w, in_w + 2 * w, max(timer_h, laser_h, tube_h)
+    tube_h = tube_top() + 0.3                                            # the lid's lip has a notch there
+    laser_h = p['beam_h'] + bore_r() * math.sqrt(2) + 1.2                # teardrop top + material over it
+    switch_h = p['laser_floor'] + p['switch_depth'] + 1.0
+    # the holder must fit under the laser bridge
+    holder_top = p['laser_floor'] + p['holder_h']
+    bridge_bottom = p['beam_h'] - bore_r() - p['bridge_skin']
+    if holder_top + 0.3 > bridge_bottom:
+        raise ValueError('The battery holder ({:.1f} mm) does not fit under the laser bridge ({:.1f} mm): lower '
+                         'laser_floor or laser_clear, or raise beam_h.'.format(holder_top, bridge_bottom))
+    return in_l + 2 * w, in_w + 2 * w, max(timer_h, tube_h, laser_h, switch_h)
 
 
 def timer(root, L, W, H):
@@ -324,7 +349,7 @@ def timer(root, L, W, H):
     # LDR tube: a block standing on the floor, the teardrop bore along the beam, a funnel at the wall
     tube_x = (plate_x1 + L - w) / 2
     tr = p['tube_d'] / 2
-    block(c, tube_x - tr, w - 0.1, fl - 0.1, tube_x + tr, w + p['tube_len'], bz + tr, JOIN, b)
+    block(c, tube_x - tr, w - 0.1, fl - 0.1, tube_x + tr, w + p['tube_len'], tube_top(), JOIN, b)
     bore_y(c, -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], b)
     funnel_y(c, 0, p['funnel_len'], tube_x, bz, p['funnel_d'], p['ldr_hole'], b)
     # USB: a slot from the top edge of the end wall down to the plug
@@ -351,31 +376,35 @@ def timer(root, L, W, H):
     pb.name = 'Pin plate'
 
     # ---- lid
-    lid(root, 'Timer lid', 0, oy + W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x)
+    lid(root, 'Timer lid', 0, oy + W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x,
+        notch=(tube_x - tr - 0.5, tube_x + tr + 0.5))
 
 
 def laser(root, ox, L, W, H):
     p = P
-    w, fl, R = p['wall'], p['floor'], p['corner_r']
+    w, fl, R = p['wall'], p['laser_floor'], p['corner_r']
     r_in = R - w
     cy = W / 2
-    px1 = w + p['holder_l'] + 1.0                       # the pocket: battery holder, the switch above it
-    lx = (px1 + L) / 2                                  # the laser in the tower beyond
     bz = p['beam_h']
+    # inside, along x: switch zone | battery holder; the laser bridge spans the holder's far end
+    bx0 = L - w - p['bridge_l']
+    lx = (bx0 + L - w) / 2
+    bridge_bottom = bz - bore_r() - p['bridge_skin']
 
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
-    rblock(c, ox + w, w, fl, ox + px1, W - w, H + 1, r_in, CUT, b)
-    bore_y(c, -1, W + 1, ox + lx, bz, p['laser_d'] + p['laser_clear'], b)
-    # aiming screws: one from the top (up/down), one from the end (left/right)
+    rblock(c, ox + w, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
+    # the bridge: from wall to wall across the holder's end, its top flush with the post's top
+    block(c, ox + bx0, w - 0.1, bridge_bottom, ox + L - w + 0.1, W - w + 0.1, H, JOIN, b)
+    bore_y(c, -1, W + 1, ox + lx, bz, 2 * bore_r(), b)
+    # aiming screws: one from the top (up/down), one through the end wall (left/right)
     rod(c, 'z', bz, H + 1, ox + lx, cy, p['tap_d'], CUT, b)
     rod(c, 'x', ox + lx, ox + L + 1, cy, bz, p['tap_d'], CUT, b)
-    # wire channel from the bore into the pocket (a short 4 mm bridge prints fine)
-    block(c, ox + px1 - 1, cy - 2, bz - 2, ox + lx, cy + 2, bz + 2, CUT, b)
     b.name = 'Laser post'
 
-    lid(root, 'Laser lid', ox, W + 10, L, W, (w, w, px1, W - w, r_in),
-        holes=[(w + p['holder_l'] / 2, cy, p['switch_d']), (lx, cy, p['clear_d'] + 0.6)], groove_x=lx)
+    lid(root, 'Laser lid', ox, W + 10, L, W, (w, w, bx0, W - w, r_in),
+        holes=[(w + p['fit'] + p['lip_t'] + 0.2 + p['switch_d'] / 2, cy, p['switch_d']), (lx, cy, p['clear_d'] + 0.6)],
+        groove_x=lx)
 
 
 def sleeve(root, ox, oy, L, W):
