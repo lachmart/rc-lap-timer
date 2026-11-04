@@ -400,8 +400,9 @@ def laser(root, ox, L, W, H):
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
     rblock(c, ox + w + bl, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
-    # a hollow under the laser block, open to the pocket (end wall 1 mm thicker), roof laser_roof under the bore
-    block(c, ox + w + 1, w, fl, ox + w + bl + 0.1, W - w, bz - bore_r() - p['laser_roof'], CUT, b)
+    # a hollow under the laser block, open to the pocket (end wall 1 mm thicker), roof laser_roof under the bore;
+    # it reaches past the pocket's rounded corners so none are left standing in the opening
+    block(c, ox + w + 1, w, fl, ox + w + bl + r_in + 0.1, W - w, bz - bore_r() - p['laser_roof'], CUT, b)
     # the laser goes in from the front (beam side); the bore stops at the back wall, which stays closed
     bore_y(c, -1, W - w, ox + lx, bz, 2 * bore_r(), b)
     # its wires: from the back of the bore through a channel into the pocket
