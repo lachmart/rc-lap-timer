@@ -9,7 +9,7 @@ five parts, each already lying the way it prints (flat side down, no supports ne
   Timer lid    flat, a lip all the way round the open part, four short tubes underneath that hold the
                board down around its holes (nothing flexes, nothing to snap); a groove on top marks the beam
   Laser post   the laser sits in a solid block at one end (push it in from the front, its wires go through
-               a channel into the pocket), two M3 aiming screws (top, end); 2×AAA holder; switch zone
+               a channel into the pocket), two M3 aiming screws (top, end); 2×AAA holder, the switch over its end
   Laser lid    like the timer's, with the switch hole and a hole to reach the top aiming screw
   Sleeve       for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
@@ -57,8 +57,8 @@ P = {
     'holder_w': 25.0,
     'holder_h': 13.0,
     'switch_d': 15.2,      # round rocker switch, panel hole (in the laser lid)
-    'switch_depth': 17.0,  # switch below the lid's top face
-    'switch_zone': 18.0,   # inner length beside the holder for the switch body
+    'switch_depth': 12.0,  # switch below the lid's top face (pins bent over)
+    'switch_zone': 0.0,    # extra inner length for the switch body; 0 = it sits over the holder's end
     'laser_d': 6.0,        # laser module diameter
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
     'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
@@ -394,7 +394,7 @@ def laser(root, ox, L, W, H):
     bl = p['block_l']
     sy = w + p['laser_len'] / 2                         # the aiming screws press on the middle of the laser
 
-    # ---- post: inside along x the solid laser block | battery holder | switch zone
+    # ---- post: inside along x the solid laser block | battery holder (the switch hangs over its end)
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
     rblock(c, ox + w + bl, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
@@ -408,6 +408,10 @@ def laser(root, ox, L, W, H):
     b.name = 'Laser post'
 
     switch_x = L - w - p['fit'] - p['lip_t'] - 0.2 - p['switch_d'] / 2
+    over = L - w - p['switch_zone'] < switch_x + p['switch_d'] / 2       # the switch hangs over the holder
+    if over and H + p['lid_t'] - p['switch_depth'] < fl + p['holder_h'] + 1.0:
+        raise ValueError('The switch does not fit over the holder: make switch_zone about {:.0f} mm.'.format(
+            p['switch_d'] + 3))
     lid(root, 'Laser lid', ox, W + 10, L, W, (w + bl, w, L - w, W - w, r_in),
         holes=[(switch_x, cy, p['switch_d']), (lx, sy, p['clear_d'] + 0.6)], groove_x=lx)
 
