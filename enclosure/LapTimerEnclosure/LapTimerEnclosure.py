@@ -61,15 +61,16 @@ P = {
     'laser_d': 6.0,        # laser module diameter
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
     'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
-    'bridge_l': 12.4,      # the bridge across the holder's end that holds the laser (its middle is the beam
-                           # line; the timer's LDR opening sits at the same distance from its far end)
+    'bridge_l': 9.0,       # the bridge across the holder's end that holds the laser: the bore + 1.2 mm each
+                           # side. Its middle is the beam line; the timer's LDR opening is the same
+                           # distance from its far end
     'bridge_skin': 0.6,    # bridge material under the laser bore
     'laser_floor': 1.6,    # thinner floor in the laser post, so the holder fits under the bridge
 
     # shell (both parts share the footprint and the height)
     'wall': 2.4,
     'floor': 2.4,
-    'corner_r': 5.0,       # outside corner radius
+    'corner_r': 3.0,       # outside corner radius (the beam openings near the ends stay on the flat walls)
     'head': 2.5,           # room above the tallest part on the board
     'min_under': 10.0,     # room under the pin plate for soldered wires and the resistor (more if taller anyway)
 
@@ -271,7 +272,7 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None, notch=None):
     """Flat lid L×W lying top-down (as it prints) with a lip that goes into `opening` (x0, y0, x1, y1, r) of
     the part below. holes: (x, y, d) through the lid, groove_x: the beam line, marked on top. x, y are in
     the part's own coordinates; the lid is flipped over y, which is symmetric for everything here.
-    notch: (x0, x1) where the lip is left out along the front wall (y = 0), e.g. over the LDR tube."""
+    notch: (x0, y0, x1, y1) in the part's coordinates where the lip is left out, e.g. over the LDR tube."""
     p = P
     c = new_component(root, name)
     b = rblock(c, ox, oy, 0, ox + L, oy + W, p['lid_t'], p['corner_r'])
@@ -283,9 +284,9 @@ def lid(root, name, ox, oy, L, W, opening, holes=(), groove_x=None, notch=None):
            p['lid_t'] + p['lip_h'], max(r - f - t, 0.5), CUT, b)
     for x, y, d in holes:
         rod(c, 'z', -1, p['lid_t'] + p['lip_h'] + 1, ox + x, oy + W - y, d, CUT, b)
-    if notch is not None:                               # the front wall is at y = W once the lid is flipped
-        block(c, ox + notch[0], oy + W - y0 - f - t - 0.5, p['lid_t'], ox + notch[1], oy + W,
-              p['lid_t'] + p['lip_h'] + 1, CUT, b)
+    if notch is not None:                               # y is flipped on the lid
+        nx0, ny0, nx1, ny1 = notch
+        block(c, ox + nx0, oy + W - ny1, p['lid_t'], ox + nx1, oy + W - ny0, p['lid_t'] + p['lip_h'] + 1, CUT, b)
     if groove_x is not None:
         g = p['groove_w'] / 2
         block(c, ox + groove_x - g, oy - 1, -1, ox + groove_x + g, oy + W + 1, p['groove_d'], CUT, b)
@@ -300,6 +301,11 @@ def bore_r():
 def tube_top():
     """Top of the LDR tube block: the teardrop bore's top + material over it."""
     return P['beam_h'] + P['ldr_hole'] / 2 * math.sqrt(2) + 1.0
+
+
+def check_bridge():
+    if P['bridge_l'] < 2 * bore_r() + 2.0:
+        raise ValueError('bridge_l is too small for the laser bore: at least {:.1f} mm.'.format(2 * bore_r() + 2.0))
 
 
 def beam_x():
@@ -359,11 +365,12 @@ def timer(root, L, W, H):
     # LDR tube: a block standing on the floor, the teardrop bore along the beam, a funnel at the wall
     tube_x = L - beam_x()
     tr = p['tube_d'] / 2
-    if tube_x - tr < plate_x1 + 1 or tube_x + tr > L - w - p['fit'] - p['lip_t'] - 0.3:
+    if p['funnel_d'] / 2 + R + 0.3 > L - tube_x:
+        raise ValueError('The beam opening would run into the rounded corner: make corner_r smaller or bridge_l bigger.')
+    if tube_x - tr < plate_x1 + 1 or tube_x + tr > L - w:
         raise ValueError('The LDR tube does not fit between the pin plate and the end wall: change bridge_l or ldr_zone.')
-    block(c, tube_x - tr, w - 0.1, fl - 0.1, tube_x + tr, w + p['tube_len'], tube_top(), JOIN, b)
-    # tie it to the end wall, low enough for the lid's lip
-    block(c, tube_x, w - 0.1, fl - 0.1, L - w + 0.1, w + p['tube_len'], H - p['lip_h'] - 0.3, JOIN, b)
+    # the tube block reaches the end wall (sturdier, no thin gap); the lid's lip is left out over it
+    block(c, tube_x - tr, w - 0.1, fl - 0.1, L - w + 0.1, w + p['tube_len'], tube_top(), JOIN, b)
     bore_y(c, -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], b)
     funnel_y(c, 0, p['funnel_len'], tube_x, bz, p['funnel_d'], p['ldr_hole'], b)
     # USB: a slot from the top edge of the end wall down to the plug
@@ -391,7 +398,7 @@ def timer(root, L, W, H):
 
     # ---- lid
     lid(root, 'Timer lid', 0, oy + W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x,
-        notch=(tube_x - tr - 0.5, tube_x + tr + 0.5))
+        notch=(tube_x - tr - 0.5, -1, L + 1, w + p['tube_len'] + 0.5))
 
 
 def laser(root, ox, L, W, H):
@@ -402,6 +409,7 @@ def laser(root, ox, L, W, H):
     bz = p['beam_h']
     # inside, along x: battery holder | switch zone; the laser bridge spans the holder's end at x = 0, so
     # turned to face the timer, the laser lines up with the timer's LDR opening
+    check_bridge()
     lx = beam_x()
     bx1 = w + p['bridge_l']
     bridge_bottom = bz - bore_r() - p['bridge_skin']
