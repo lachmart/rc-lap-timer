@@ -39,13 +39,14 @@ P = {
     # the beam
     'beam_h': 22.0,        # beam above the ground (Losi Micro-B 1:24: hits the chassis, not only the wheels)
 
-    # ESP32 DevKit, 30 pins (MEASURE)
-    'pcb_l': 51.5,         # board length, USB end to antenna end
-    'pcb_w': 28.5,         # board width
-    'hole_dx': 46.5,       # mounting holes: centre to centre along the board
-    'hole_dy': 23.5,       #                 centre to centre across the board
-    'hole_x0': 2.5,        # USB end of the board to the centre of the nearest holes
-    'hole_d': 3.0,         # mounting hole diameter; the pegs are 0.4 mm thinner
+    # ESP32 DevKit V1 (DOIT), 30 pins. Board and holes from the real-size Fritzing drawing
+    # (mischianti.org, DOIT-ESP32-DevKit-v1.svg), matching a caliper measurement on the Fritzing forum
+    'pcb_l': 51.8,         # board length, USB end to antenna end
+    'pcb_w': 28.2,         # board width
+    'hole_dx': 47.4,       # mounting holes: centre to centre along the board
+    'hole_dy': 23.8,       #                 centre to centre across the board
+    'hole_x0': 2.2,        # board edge to the holes' centres (the holes sit 2.2 mm in from both edges)
+    'hole_d': 2.8,         # mounting hole diameter; the pegs are 0.4 mm thinner
     'standoff_d': 5.0,
     'hook_w': 8.0,         # snap hook over the board's antenna end: width,
     'hook_t': 1.6,         #   arm thickness (springs back),
@@ -356,7 +357,7 @@ def timer(root, L, W, H):
             rod(c, 'z', pcb_z - 0.1, pcb_z + p['pcb_t'] + 0.8, x, y, p['hole_d'] - 0.4, JOIN, b)
     # snap hook over the board's antenna end: a springy arm from the floor, a 45° lead-in on top, a catch
     # 1 mm over the board's top edge (its underside is the only overhang, 1 mm)
-    a, t, k = board_x1 + 0.2, p['hook_t'], p['hook_catch']
+    a, t, k = board_x1 + 0.3, p['hook_t'], p['hook_catch']   # 0.3: board edges aren't cut precisely
     zc = pcb_z + p['pcb_t'] + 0.15                      # the catch, just above the board
     zt = zc + 0.8 + k                                   # the hook's top
     hy = p['hook_w'] / 2
