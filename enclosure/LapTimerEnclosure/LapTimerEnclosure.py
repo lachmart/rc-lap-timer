@@ -64,7 +64,7 @@ P = {
     'laser_clear': 0.3,    # bore = laser_d + this: a snug fit (printed holes come out a bit small), the screws aim it
     'laser_len': 10.0,     # laser module length; the aiming screws press on its middle
     'block_l': 11.0,       # the solid block that holds the laser, along the post. Its middle is the beam
-    'laser_roof': 1.3,     # under the laser block a hollow open to the pocket; its roof below the bore
+    'laser_roof': 2.4,     # under the laser block a hollow open to the pocket; its roof below the bore (a wall's thickness: the bridge may sag)
                            # line; the timer's LDR is the same distance from its far end
 
     # shell (both parts share the footprint and the height)
