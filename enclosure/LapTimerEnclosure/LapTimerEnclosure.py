@@ -1,30 +1,30 @@
 """RC Lap Timer – 3D-printable enclosure, built by a Fusion 360 script.
 
 Fusion: Utilities → Add-Ins → Scripts and Add-Ins → LapTimerEnclosure → Run. It opens a new design with
-six parts, each already lying the way it prints (flat side down, no supports needed):
+eight parts, each already lying the way it prints (flat side down, no supports needed):
 
-  Timer base      beam opening + LDR tube, the ESP32 board clips in: four standoffs with pegs through its
-                  mounting holes, a snap hook over its antenna end (push the hook back to take it out); its
-                  pins point down between the standoffs, room for the wiring underneath; USB slot
-  Timer lid       flat lid with a lip; a groove on top marks the beam line
-  Laser post      2×AA holder on the floor, room for the switch at the other end, two vertical grooves at
-                  the holder's end for the laser carrier, the beam hole. Turned to face the timer, the laser
-                  lines up with the timer's LDR opening (the lid grooves too).
-  Laser carrier   holds the laser at beam height; prints standing up (the bore is vertical, so it's round),
-                  drops into the post's grooves above the battery holder, the lid holds it down. Two M3
-                  aiming screws: from the top (through the lid) and through the post's end wall. The laser's
-                  wires leave through a slot at the back, down into the pocket.
-  Laser lid       flat lid with the switch hole, a hole to reach the top aiming screw, the beam groove
+  Timer base      the ESP32 clips in (four standoffs with pegs through its mounting holes, a snap hook over
+                  its antenna end), its pins point down, room for the soldered wires; two standoffs for the
+                  LDR carrier behind the beam hole; USB slot
+  LDR carrier     the LDR in a round bore with a funnel in front; prints standing on its front face (round
+                  bore, no supports), sits on its pegged standoffs against the front wall
+  Timer lid       flat lid with a lip all the way round; a groove on top marks the beam line
+  Laser post      laser carrier on two standoffs at one end, then the 2×AA holder, the switch at the other
+                  end. Turned to face the timer, the laser lines up with the timer's LDR (the grooves too).
+  Laser carrier   the laser in a round bore, prints standing on its front face; sits on its standoffs (a peg
+                  and an M3 screw), the laser's wires leave down at the back. Two M3 aiming screws: from the
+                  top (through the lid) and through the post's end wall
+  Laser lid       flat lid with a lip all the way round, the switch hole, a hole to reach the top aiming screw
   Sleeve          for transport: put the two parts bottom to bottom and slide the sleeve over the joint
 
 Both parts have the same footprint and height (the larger of what each needs), so they make a neat pair and
-the sleeve fits both. The height is set by the beam: the laser and the LDR tube sit at beam_h, just above
-the battery holder; the wires under the board are soldered (3V3, GND, D32: Dupont plugs would need
-about 6 mm more height).
+the sleeve fits both. The height is set by the beam: the laser and the LDR carriers end just below the lid's
+lip. The walls are never thinned: the beam only passes through a hole. The wires under the board are
+soldered (3V3, GND, D32).
 
 How it prints well: every part has a flat face on the bed; holes across a part (laser, LDR) are teardrops
-(pointed top, 45°); the laser carrier prints standing so its bore is round; the switch hole is in a lid,
-printed flat; walls 2.4 mm. The aiming screws (M3) self-tap into 2.5 mm holes.
+(pointed top, 45°); the carriers print standing so their bores are round; the switch hole is in a lid,
+printed flat; walls 2.4 mm. M3 screws self-tap into 2.5 mm holes.
 
 All sizes are in P below, in mm. Measure your parts with a caliper, change the numbers and run again (it
 makes a new design each time). The ones marked MEASURE matter most. Both parts stand on the ground; the
@@ -68,11 +68,11 @@ P = {
     'laser_clear': 0.6,    # bore = laser_d + this: room to aim with the two screws
     'laser_len': 12.0,     # laser module length (MEASURE); the aiming screws press on its middle
     'carrier_l': 10.0,     # laser carrier, along the post. Its middle is the beam line; the timer's LDR
-                           # opening is the same distance from its far end
-    'carrier_skin': 1.0,   # carrier material under the laser bore
-    'carrier_groove': 1.2, # grooves in the post's front and back walls the carrier slides down
+                           # is the same distance from its far end
     'beam_hole': 5.0,      # hole in the laser post's front wall for the beam
-    'laser_floor': 1.2,    # thinner floor in the laser post, so the holder fits under the carrier
+    'laser_floor': 2.4,
+    'peg_d': 2.4,          # pegs on the carriers' standoffs; the carriers' holes are 0.3 mm bigger
+    'peg_h': 2.0,
 
     # shell (both parts share the footprint and the height)
     'wall': 2.4,
@@ -81,12 +81,12 @@ P = {
     'head': 2.5,           # room above the tallest part on the board
 
     # LDR (light comes in only along the beam)
-    'ldr_zone': 13.0,      # at least this inner length past the board for the LDR tube
+    'ldr_zone': 13.0,      # at least this inner length past the board for the LDR carrier
     'wire_room': 5.0,      # below the pins' tips: soldered wires, the resistor
     'tube_len': 20.0,      # from the inside of the front wall inwards; the LDR sits at its inner end
     'tube_d': 8.0,
     'ldr_hole': 5.4,       # LDR 5 mm (GL5528): snug
-    'funnel_d': 7.0,       # opening in the outside of the front wall (its teardrop top stays below the lid)
+    'funnel_d': 7.0,       # funnel in the LDR carrier's front, and the beam hole in the timer's front wall
     'funnel_len': 3.0,     # cone from the opening down to the LDR hole
 
     # lids
@@ -298,19 +298,15 @@ def bore_r():
     return (P['laser_d'] + P['laser_clear']) / 2
 
 
-def tube_top():
-    """Top of the LDR tube block: the teardrop bore's top + material over it."""
-    return P['beam_h'] + P['ldr_hole'] / 2 * math.sqrt(2) + 1.0
-
-
-def carrier_bottom():
-    return P['beam_h'] - bore_r() - P['carrier_skin']
-
-
 def beam_x():
     """Beam line from the laser post's end wall (outside). Standing face to face (one turned half way), the
-    timer's LDR opening is the same distance from its other end, so the beam goes straight across."""
+    timer's LDR is the same distance from its other end, so the beam goes straight across."""
     return P['wall'] + P['carrier_l'] / 2
+
+
+def carrier_top(H):
+    """The carriers end just below the lids' lips, so the lips go all the way round."""
+    return H - P['lip_h'] - 0.3
 
 
 def footprint():
@@ -318,21 +314,79 @@ def footprint():
     p = P
     w = p['wall']
     timer_l = p['usb_gap'] + p['pcb_l'] + p['ldr_zone']
-    laser_l = p['switch_zone'] + p['holder_l'] + 1.0
+    laser_l = p['carrier_l'] + 1.0 + p['holder_l'] + 1.0 + p['switch_zone']
     in_l = max(timer_l, laser_l)
     in_w = max(p['pcb_w'] + 2.0, p['holder_w'] + 1.0)
     timer_h = p['floor'] + p['wire_room'] + p['pins_below'] + p['pcb_t'] + p['parts_h'] + p['head']
-    tube_h = tube_top() + 0.3                                            # the lid's lip has a notch there
-    laser_h = p['beam_h'] + bore_r() + 1.5                               # the carrier's bore + material over it
+    lip = p['lip_h'] + 0.3
+    ldr_h = p['beam_h'] + p['funnel_d'] / 2 + 1.0 + lip          # material over the bore/funnel, under the lip
+    laser_h = p['beam_h'] + bore_r() + 1.0 + lip
     switch_h = p['laser_floor'] + p['switch_depth'] + 1.0
-    # the holder must fit under the laser carrier, the bore must fit in the carrier
-    holder_top = p['laser_floor'] + p['holder_h']
-    if holder_top + 0.3 > carrier_bottom():
-        raise ValueError('The battery holder ({:.1f} mm) does not fit under the laser carrier ({:.1f} mm): lower '
-                         'laser_floor, carrier_skin or laser_clear, or raise beam_h.'.format(holder_top, carrier_bottom()))
+    holder_h = p['laser_floor'] + p['holder_h'] + lip + 0.2            # the lip goes along the holder's edges
     if p['carrier_l'] < 2 * bore_r() + 3.0:
         raise ValueError('carrier_l is too small for the laser bore: at least {:.1f} mm.'.format(2 * bore_r() + 3.0))
-    return in_l + 2 * w, in_w + 2 * w, max(timer_h, tube_h, laser_h, switch_h)
+    return in_l + 2 * w, in_w + 2 * w, max(timer_h, ldr_h, laser_h, switch_h, holder_h)
+
+
+def standoffs(comp, body, z0, z1, spots):
+    """Standoffs from z0 to z1 at spots (x, y, kind): 'peg' gets a peg on top, 'screw' a 2.5 mm hole for M3."""
+    p = P
+    for x, y, kind in spots:
+        rod(comp, 'z', z0 - 0.1, z1, x, y, p['standoff_d'], JOIN, body)
+        if kind == 'peg':
+            rod(comp, 'z', z1 - 0.1, z1 + p['peg_h'], x, y, p['peg_d'], JOIN, body)
+        else:
+            rod(comp, 'z', z1 - 8, z1 + 1, x, y, p['tap_d'], CUT, body)
+
+
+class Insert:
+    """A part that sits inside a box but prints standing on its front face (y = y0 down on the bed), so a
+    bore along y comes out round. Coordinates are the box's (x, y, z); while printing X = x - x0,
+    Y = z - z0, Z = y - y0, placed at (px, py) on the bed."""
+
+    def __init__(self, root, name, px, py, x0, x1, y0, y1, z0, z1):
+        self.c = new_component(root, name)
+        self.name = name
+        self.px, self.py, self.x0, self.y0, self.z0 = px, py, x0, y0, z0
+        self.body = block(self.c, px, py, 0, px + x1 - x0, py + z1 - z0, y1 - y0)
+
+    def X(self, x):
+        return self.px + x - self.x0
+
+    def Y(self, z):
+        return self.py + z - self.z0
+
+    def Z(self, y):
+        return y - self.y0
+
+    def bore(self, y0, y1, x, z, d):                    # along y
+        rod(self.c, 'z', self.Z(y0), self.Z(y1), self.X(x), self.Y(z), d, CUT, self.body)
+
+    def vertical(self, z0, z1, x, y, d):                # along z
+        rod(self.c, 'y', self.Y(z0), self.Y(z1), self.X(x), self.Z(y), d, CUT, self.body)
+
+    def across(self, x0, x1, y, z, d):                  # along x
+        rod(self.c, 'x', self.X(x0), self.X(x1), self.Y(z), self.Z(y), d, CUT, self.body)
+
+    def cut(self, x0, y0, z0, x1, y1, z1):
+        block(self.c, self.X(x0), self.Y(z0), self.Z(y0), self.X(x1), self.Y(z1), self.Z(y1), CUT, self.body)
+
+    def funnel(self, y0, length, x, z, d0, d1):        # cone along y
+        lo = self.c.features.loftFeatures
+        za, zb = self.Z(y0), self.Z(y0 + length)
+        s0 = sketch_at(self.c, 'z', za)
+        s0.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s0, pt('z', za, self.X(x), self.Y(z))), cm(d0 / 2))
+        s1 = sketch_at(self.c, 'z', zb)
+        s1.sketchCurves.sketchCircles.addByCenterRadius(to_sk(s1, pt('z', zb, self.X(x), self.Y(z))), cm(d1 / 2))
+        li = lo.createInput(CUT)
+        li.loftSections.add(s0.profiles.item(0))
+        li.loftSections.add(s1.profiles.item(0))
+        li.isSolid = True
+        li.participantBodies = [self.body]
+        lo.add(li)
+
+    def done(self):
+        self.body.name = self.name
 
 
 def timer(root, L, W, H):
@@ -366,25 +420,33 @@ def timer(root, L, W, H):
         (x0, z0), (x1, z1) = poly[i], poly[(i + 1) % len(poly)]
         sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(sk, pt('y', cy - hy, x0, z0)), to_sk(sk, pt('y', cy - hy, x1, z1)))
     extrude(c, sk, 'y', p['hook_w'], JOIN, b)
-    # LDR tube: a block standing on the floor, the teardrop bore along the beam, a funnel at the wall
+    # LDR carrier on two pegged standoffs against the front wall; the beam comes in through a hole
     tube_x = L - beam_x()
     tr = p['tube_d'] / 2
     if p['funnel_d'] / 2 + R + 0.3 > L - tube_x:
-        raise ValueError('The beam opening would run into the rounded corner: make corner_r smaller or carrier_l bigger.')
+        raise ValueError('The beam hole would run into the rounded corner: make corner_r smaller or carrier_l bigger.')
     if tube_x - tr < board_x1 + 1 or tube_x + tr > L - w:
-        raise ValueError('The LDR tube does not fit between the board and the end wall: change carrier_l or ldr_zone.')
-    # the tube block reaches the end wall (sturdier, no thin gap); the lid's lip is left out over it
-    block(c, tube_x - tr, w - 0.1, fl - 0.1, L - w + 0.1, w + p['tube_len'], tube_top(), JOIN, b)
-    bore_y(c, -1, w + p['tube_len'] + 1, tube_x, bz, p['ldr_hole'], b)
-    funnel_y(c, 0, p['funnel_len'], tube_x, bz, p['funnel_d'], p['ldr_hole'], b)
+        raise ValueError('The LDR carrier does not fit between the board and the end wall: change carrier_l or ldr_zone.')
+    lb = bz - p['funnel_d'] / 2 - 1.5                   # carrier bottom
+    ly0, ly1 = w + 0.1, w + p['tube_len']
+    lspots = [(tube_x, ly0 + 4, 'peg'), (tube_x, ly1 - 4, 'peg')]
+    standoffs(c, b, fl, lb, lspots)
+    bore_y(c, -1, w + 0.1, tube_x, bz, p['funnel_d'], b)
     # USB: a slot from the top edge of the end wall down to the plug
     usb_z = pcb_z + p['pcb_t'] + 1.5
     block(c, -1, cy - p['usb_w'] / 2, usb_z - p['usb_h'] / 2, w + 1, cy + p['usb_w'] / 2, H + 1, CUT, b)
     b.name = 'Timer base'
 
+    # ---- LDR carrier: the LDR goes in from the back, its legs come out there
+    ins = Insert(root, 'LDR carrier', 0, 2 * W + 20, tube_x - tr, tube_x + tr, ly0, ly1, lb, carrier_top(H))
+    ins.bore(ly0 - 1, ly1 + 1, tube_x, bz, p['ldr_hole'])
+    ins.funnel(ly0, p['funnel_len'], tube_x, bz, p['funnel_d'], p['ldr_hole'])
+    for x, y, _ in lspots:
+        ins.vertical(lb - 1, lb + p['peg_h'] + 0.4, x, y, p['peg_d'] + 0.3)
+    ins.done()
+
     # ---- lid
-    lid(root, 'Timer lid', 0, W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x,
-        notch=(tube_x - tr - 0.5, -1, L + 1, w + p['tube_len'] + 0.5))
+    lid(root, 'Timer lid', 0, W + 10, L, W, (w, w, L - w, W - w, r_in), groove_x=tube_x)
 
 
 def laser(root, ox, L, W, H):
@@ -394,41 +456,35 @@ def laser(root, ox, L, W, H):
     cy = W / 2
     bz = p['beam_h']
     lx = beam_x()
-    cl, gd, f = p['carrier_l'], p['carrier_groove'], p['fit']
-    cb = carrier_bottom()
+    cl = p['carrier_l']
     sy = w + p['laser_len'] / 2                         # the aiming screws press on the middle of the laser
 
-    # ---- post: inside along x the battery holder (the carrier sits over its end at x = 0) | switch zone
+    # ---- post: inside along x the laser carrier (on its standoffs) | battery holder | switch zone
     c = new_component(root, 'Laser post')
     b = rblock(c, ox, 0, 0, ox + L, W, H, R)
     rblock(c, ox + w, w, fl, ox + L - w, W - w, H + 1, r_in, CUT, b)
-    # vertical grooves in the front and back walls; the carrier rests on their bottoms
-    block(c, ox + w - 0.1, w - gd, cb, ox + w + cl + f, w + 0.1, H + 1, CUT, b)
-    block(c, ox + w - 0.1, W - w - 0.1, cb, ox + w + cl + f, W - w + gd, H + 1, CUT, b)
-    # the beam's way out through the front wall, and the side aiming screw through the end wall
-    bore_y(c, -1, w - gd + 0.1, ox + lx, bz, p['beam_hole'], b)
-    rod(c, 'x', ox - 1, ox + w + 0.1, sy, bz, p['clear_d'], CUT, b)
+    cb = bz - bore_r() - 1.5                            # carrier bottom
+    cy0, cy1 = w + 0.1, w + p['laser_len'] + 12.0       # laser, wire exit, the screw at the back
+    spots = [(ox + lx, cy0 + 4, 'peg'), (ox + lx, cy1 - 3.5, 'screw')]
+    standoffs(c, b, fl, cb, spots)
+    bore_y(c, -1, w + 0.1, ox + lx, bz, p['beam_hole'], b)
+    rod(c, 'x', ox - 1, ox + w + 0.1, sy, bz, p['clear_d'], CUT, b)  # side aiming screw through the end wall
     b.name = 'Laser post'
 
-    # ---- carrier, lying on its front face so the laser bore prints vertical. Its coordinates while printing:
-    # X = along the post (x - w), Y = up (z - cb), Z = across (y - (w - gd + f))
-    ch = H - cb
-    clen = W - 2 * w + 2 * gd - 2 * f
-    y0 = w - gd + f
-    cx0, cy0 = ox + L + 15, 0
-    cc = new_component(root, 'Laser carrier')
-    cbody = block(cc, cx0, cy0, 0, cx0 + cl, cy0 + ch, clen)
-    bx, by = cx0 + lx - w, cy0 + bz - cb               # the bore's centre
-    rod(cc, 'z', -1, clen + 1, bx, by, 2 * bore_r(), CUT, cbody)
-    zs = sy - y0                                        # the screws' position along the laser
-    rod(cc, 'y', by, cy0 + ch + 1, bx, zs, p['tap_d'], CUT, cbody)   # top screw (up/down)
-    rod(cc, 'x', cx0 - 1, bx, by, zs, p['tap_d'], CUT, cbody)        # side screw (left/right)
-    # wire slot at the back end, from the bore down to the carrier's bottom
-    block(cc, bx - 1.5, cy0 - 1, clen - 6, bx + 1.5, by, clen + 1, CUT, cbody)
-    cbody.name = 'Laser carrier'
+    # ---- laser carrier: against the end wall and the front wall, top under the lid's lip
+    ins = Insert(root, 'Laser carrier', ox + L + 15, 0, ox + w + 0.1, ox + w + cl, cy0, cy1, cb, carrier_top(H))
+    bore_end = w + p['laser_len'] + 4.0
+    ins.bore(cy0 - 1, bore_end, ox + lx, bz, 2 * bore_r())
+    ins.cut(ox + lx - 1.5, bore_end - 4.0, cb - 1, ox + lx + 1.5, bore_end, bz)   # wires go down here
+    ins.vertical(bz, carrier_top(H) + 1, ox + lx, sy, p['tap_d'])                   # top aiming screw
+    ins.across(ox + w - 1, ox + lx, sy, bz, p['tap_d'])                             # side aiming screw
+    (px, py, _), (sx, sy2, _) = spots
+    ins.vertical(cb - 1, cb + p['peg_h'] + 0.4, px, py, p['peg_d'] + 0.3)          # onto the peg
+    ins.vertical(cb - 1, carrier_top(H) + 1, sx, sy2, p['clear_d'])                 # M3 into the standoff
+    ins.done()
 
-    switch_x = L - w - f - p['lip_t'] - 0.2 - p['switch_d'] / 2
-    lid(root, 'Laser lid', ox, W + 10, L, W, (w + cl + f, w, L - w, W - w, r_in),
+    switch_x = L - w - p['fit'] - p['lip_t'] - 0.2 - p['switch_d'] / 2
+    lid(root, 'Laser lid', ox, W + 10, L, W, (w, w, L - w, W - w, r_in),
         holes=[(switch_x, cy, p['switch_d']), (lx, sy, p['clear_d'] + 0.6)], groove_x=lx)
 
 
@@ -454,7 +510,7 @@ def run(context):
         L, W, H = footprint()
         timer(root, L, W, H)
         laser(root, L + 15, L, W, H)
-        sleeve(root, 2 * L + 60, 0, L, W)
+        sleeve(root, 2 * L + 45, 0, L, W)
         app.activeViewport.fit()
         ui.messageBox('Both parts: {:.0f} × {:.0f} × {:.0f} mm (+ {:.1f} mm lid)'.format(L, W, H, P['lid_t']))
     except Exception:
